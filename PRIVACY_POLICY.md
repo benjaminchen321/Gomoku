@@ -1,12 +1,12 @@
 # Privacy Policy for GomokuFast
 
-**Effective Date:** [Insert Today's Date, e.g., October 26, 2023]
+**Effective Date:** May 1, 2025
 
-Thank you for playing GomokuFast ("we", "us", "our"). This privacy policy explains how we handle information when you use our mobile application (the "Service").
+Thank you for playing Gomoku ("we", "us", "our"). This privacy policy explains how we handle information when you use our mobile application (the "Service").
 
 **Information Collection and Use**
 
-**GomokuFast does NOT collect, store, or transmit any personally identifiable information or any other user data.**
+**Gomoku does NOT collect, store, or transmit any personally identifiable information or any other user data.**
 
 *   **No Personal Data:** We do not require you to provide any personal information (like name, email, location, etc.) to use the app.
 *   **No Usage Data:** We do not collect information about how you use the app (e.g., game statistics, session length, device identifiers, crash reports).
@@ -24,5 +24,5 @@ We may update our Privacy Policy from time to time. We will notify you of any ch
 
 If you have any questions about this Privacy Policy, please contact us:
 
-*   By email: [Your Email Address]
-*   [Optional: Add other contact methods like a Website URL if you have one]
+*   By email: bc321bay@gmail.com
+
