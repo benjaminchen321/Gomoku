@@ -20,10 +20,6 @@ class ViewController: UIViewController {
     var gameOver = false
     var pieceViews: [[UIView?]] = []
 
-    // --- AI Control ---
-    let aiPlayer: Player = .white
-    var isAiTurn: Bool { currentGameMode == .humanVsAI && currentPlayer == aiPlayer }
-
     // --- Layer References ---
     var backgroundGradientLayer: CAGradientLayer?
     var woodBackgroundLayers: [CALayer] = []
@@ -32,13 +28,33 @@ class ViewController: UIViewController {
     // --- Game Setup State ---
     enum GameState { case setup, playing }
     enum GameMode { case humanVsHuman, humanVsAI }
+    enum AIDifficulty { case easy, medium, hard}
     private var currentGameState: GameState = .setup
     private var currentGameMode: GameMode = .humanVsHuman
 
+    // --- AI Control ---
+    let aiPlayer: Player = .white
+    private var selectedDifficulty: AIDifficulty = .easy
+    var isAiTurn: Bool { currentGameMode == .humanVsAI && currentPlayer == aiPlayer }
+    
+    // --- NEW: Heuristic Scores for Hard AI ---
+    // Assign weights to different patterns
+    // Make winning infinitely good, blocking opponent win very high priority
+    let scoreFiveInRow = 1000000
+    let scoreOpenFour = 10000       // _XXXX_ or O_OOO_O
+    let scoreBlockedFour = 5000    // XXXXX_ or O_OOOOX
+    let scoreOpenThree = 500       // _XXX_ or O_OOO_
+    let scoreBlockedThree = 100    // XXXX_ or O_OOOX
+    let scoreOpenTwo = 10          // _XX_ or O_OO_
+    let scoreBlockedTwo = 5        // XX_ or O_OX
+    // Center preference can be added by giving small bonuses to center squares
+    
     // --- Setup UI Elements ---
     private let gameTitleLabel = UILabel()      // NEW: Game Title
     private let setupTitleLabel = UILabel()
-    private let startHvsAIButton = UIButton(type: .system)
+    private let startEasyAIButton = UIButton(type: .system)
+    private let startMediumAIButton = UIButton(type: .system)
+    private let startHardAIButton = UIButton(type: .system)
     private let startHvsHButton = UIButton(type: .system)
     private var setupUIElements: [UIView] = []
 
@@ -88,6 +104,9 @@ class ViewController: UIViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         print("viewDidLayoutSubviews triggered. State: \(currentGameState)")
+        
+        // --- Debug Title Label ---
+        print("Game Title Label - Frame: \(gameTitleLabel.frame), IsHidden: \(gameTitleLabel.isHidden), Superview: \(gameTitleLabel.superview == self.view)")
 
         // Update full screen background gradient frame always
         self.backgroundGradientLayer?.frame = self.view.bounds
@@ -179,132 +198,165 @@ class ViewController: UIViewController {
     // --- Setup UI Creation & Management ---
     func createSetupUI() {
         print("Creating Setup UI")
-        // --- Game Title Label ---
+
+        // --- ADD Game Title Label FIRST ---
         gameTitleLabel.translatesAutoresizingMaskIntoConstraints = false
         gameTitleLabel.text = "Gomoku"
-        gameTitleLabel.font = UIFont.systemFont(ofSize: 48, weight: .bold)
+        gameTitleLabel.font = UIFont.systemFont(ofSize: 48, weight: .bold) // Large, bold
         gameTitleLabel.textColor = UIColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1.0)
         gameTitleLabel.textAlignment = .center
         gameTitleLabel.layer.shadowColor = UIColor.black.cgColor; gameTitleLabel.layer.shadowOffset = CGSize(width: 0, height: 2); gameTitleLabel.layer.shadowRadius = 4.0; gameTitleLabel.layer.shadowOpacity = 0.2; gameTitleLabel.layer.masksToBounds = false
-        view.addSubview(gameTitleLabel)
+        view.addSubview(gameTitleLabel) // Add IMMEDIATELY
+        // --- END ADD ---
 
         // Setup Title Label ("Choose Game Mode")
         setupTitleLabel.translatesAutoresizingMaskIntoConstraints = false
         setupTitleLabel.text = "Choose Game Mode"; setupTitleLabel.font = UIFont.systemFont(ofSize: 26, weight: .bold); setupTitleLabel.textColor = UIColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1.0); setupTitleLabel.textAlignment = .center
         view.addSubview(setupTitleLabel)
 
-        // Setup H vs AI Button
-        startHvsAIButton.translatesAutoresizingMaskIntoConstraints = false
-        startHvsAIButton.setTitle("Human vs AI (Easy)", for: .normal); startHvsAIButton.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .semibold); startHvsAIButton.backgroundColor = UIColor(red: 0.8, green: 0.85, blue: 0.95, alpha: 1.0); startHvsAIButton.setTitleColor(.darkText, for: .normal); startHvsAIButton.layer.cornerRadius = 10; startHvsAIButton.contentEdgeInsets = UIEdgeInsets(top: 12, left: 25, bottom: 12, right: 25)
-        startHvsAIButton.addTarget(self, action: #selector(didTapStartHvsAI), for: .touchUpInside)
-        view.addSubview(startHvsAIButton)
+        // Setup Buttons...
+        startEasyAIButton.translatesAutoresizingMaskIntoConstraints = false; configureSetupButton(startEasyAIButton, color: UIColor(red: 0.8, green: 0.95, blue: 0.85, alpha: 1.0)); startEasyAIButton.setTitle("vs AI (Easy)", for: .normal); startEasyAIButton.addTarget(self, action: #selector(didTapStartEasyAI), for: .touchUpInside); view.addSubview(startEasyAIButton)
+        startMediumAIButton.translatesAutoresizingMaskIntoConstraints = false; configureSetupButton(startMediumAIButton, color: UIColor(red: 0.95, green: 0.9, blue: 0.75, alpha: 1.0)); startMediumAIButton.setTitle("vs AI (Medium)", for: .normal); startMediumAIButton.addTarget(self, action: #selector(didTapStartMediumAI), for: .touchUpInside); view.addSubview(startMediumAIButton)
+        startHardAIButton.translatesAutoresizingMaskIntoConstraints = false; configureSetupButton(startHardAIButton, color: UIColor(red: 0.95, green: 0.8, blue: 0.8, alpha: 1.0)); startHardAIButton.setTitle("vs AI (Hard)", for: .normal); startHardAIButton.addTarget(self, action: #selector(didTapStartHardAI), for: .touchUpInside); view.addSubview(startHardAIButton)
+        startHvsHButton.translatesAutoresizingMaskIntoConstraints = false; configureSetupButton(startHvsHButton, color: UIColor(red: 0.85, green: 0.85, blue: 0.95, alpha: 1.0)); startHvsHButton.setTitle("Human vs Human", for: .normal); startHvsHButton.addTarget(self, action: #selector(didTapStartHvsH), for: .touchUpInside); view.addSubview(startHvsHButton)
 
-        // Setup H vs H Button
-        startHvsHButton.translatesAutoresizingMaskIntoConstraints = false
-        startHvsHButton.setTitle("Human vs Human", for: .normal); startHvsHButton.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .semibold); startHvsHButton.backgroundColor = UIColor(red: 0.85, green: 0.95, blue: 0.8, alpha: 1.0); startHvsHButton.setTitleColor(.darkText, for: .normal); startHvsHButton.layer.cornerRadius = 10; startHvsHButton.contentEdgeInsets = UIEdgeInsets(top: 12, left: 25, bottom: 12, right: 25)
-        startHvsHButton.addTarget(self, action: #selector(didTapStartHvsH), for: .touchUpInside)
-        view.addSubview(startHvsHButton)
+        // Store references including ALL elements
+        setupUIElements = [gameTitleLabel, setupTitleLabel, startEasyAIButton, startMediumAIButton, startHardAIButton, startHvsHButton]
+    }
 
-        // Store references
-        setupUIElements = [gameTitleLabel, setupTitleLabel, startHvsAIButton, startHvsHButton]
+    // Helper to configure common button styles
+    func configureSetupButton(_ button: UIButton, color: UIColor) {
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .semibold)
+        button.backgroundColor = color
+        button.setTitleColor(.darkText, for: .normal)
+        button.layer.cornerRadius = 10
+        // Use configuration for padding
+        if #available(iOS 15.0, *) {
+            var config = UIButton.Configuration.filled()
+            config.baseBackgroundColor = color
+            config.baseForegroundColor = .darkText
+            config.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 25, bottom: 12, trailing: 25)
+            button.configuration = config
+        } else {
+             button.contentEdgeInsets = UIEdgeInsets(top: 12, left: 25, bottom: 12, right: 25)
+        }
     }
 
     func setupSetupUIConstraints() {
         print("Setting up Setup UI constraints")
         let safeArea = view.safeAreaLayoutGuide
-        NSLayoutConstraint.activate([
-            // Game Title
-            gameTitleLabel.bottomAnchor.constraint(equalTo: setupTitleLabel.topAnchor, constant: -30),
-            gameTitleLabel.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
-            gameTitleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: safeArea.leadingAnchor, constant: 20),
-            gameTitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: safeArea.trailingAnchor, constant: -20),
+        let buttonSpacing: CGFloat = 15
+        let titleSpacing: CGFloat = 40
 
-            // "Choose Game Mode" Label
-            setupTitleLabel.bottomAnchor.constraint(equalTo: startHvsAIButton.topAnchor, constant: -60),
+        // --- Game Title Constraints (ULTRA Simplified) ---
+        NSLayoutConstraint.activate([
+            gameTitleLabel.topAnchor.constraint(equalTo: safeArea.topAnchor, constant: 80), // Distance from top
+            gameTitleLabel.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor)      // Centered horizontally
+            // REMOVED leading/trailing >= constraints
+        ])
+        print("Activated ultra-simplified constraints for gameTitleLabel.")
+
+        // --- Constraints for other elements (Relative to element above) ---
+         NSLayoutConstraint.activate([
+            setupTitleLabel.topAnchor.constraint(equalTo: gameTitleLabel.bottomAnchor, constant: titleSpacing * 0.5), // Space below title
             setupTitleLabel.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
-            setupTitleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: safeArea.leadingAnchor, constant: 20),
+            setupTitleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: safeArea.leadingAnchor, constant: 20), // Keep side margins
             setupTitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: safeArea.trailingAnchor, constant: -20),
 
-            // H vs AI Button
-            startHvsAIButton.centerYAnchor.constraint(equalTo: safeArea.centerYAnchor, constant: 0), // Centered vertically
-            startHvsAIButton.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
+            startEasyAIButton.topAnchor.constraint(equalTo: setupTitleLabel.bottomAnchor, constant: titleSpacing), // Below "Choose..."
+            startEasyAIButton.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
 
-            // H vs H Button
-            startHvsHButton.topAnchor.constraint(equalTo: startHvsAIButton.bottomAnchor, constant: 20),
+            startMediumAIButton.topAnchor.constraint(equalTo: startEasyAIButton.bottomAnchor, constant: buttonSpacing),
+            startMediumAIButton.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
+            startMediumAIButton.widthAnchor.constraint(equalTo: startEasyAIButton.widthAnchor),
+
+            startHardAIButton.topAnchor.constraint(equalTo: startMediumAIButton.bottomAnchor, constant: buttonSpacing),
+            startHardAIButton.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
+            startHardAIButton.widthAnchor.constraint(equalTo: startEasyAIButton.widthAnchor),
+
+            startHvsHButton.topAnchor.constraint(equalTo: startHardAIButton.bottomAnchor, constant: buttonSpacing),
             startHvsHButton.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
-            startHvsHButton.widthAnchor.constraint(equalTo: startHvsAIButton.widthAnchor)
+            startHvsHButton.widthAnchor.constraint(equalTo: startEasyAIButton.widthAnchor)
         ])
     }
 
-    // NEW Function to create and style the Main Menu button
     func createMainMenuButton() {
         print("Creating Main Menu Button")
         mainMenuButton.translatesAutoresizingMaskIntoConstraints = false
-        mainMenuButton.setTitle("Main Menu", for: .normal)
-        mainMenuButton.titleLabel?.font = UIFont.systemFont(ofSize: 14, weight: .regular)
-        mainMenuButton.setTitleColor(UIColor.systemGray, for: .normal)
-        mainMenuButton.backgroundColor = .clear
-        mainMenuButton.layer.cornerRadius = 6
-        // Use configuration for padding if targeting iOS 15+
+        // Use configuration for best control
         if #available(iOS 15.0, *) {
-            var config = UIButton.Configuration.plain() // Use plain style for minimal appearance
-            config.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)
+            var config = UIButton.Configuration.plain()
+            config.title = "‹ Menu"
+            // Ensure title alignment isn't causing issues if font size changes later
+            config.titleAlignment = .leading
+            config.baseForegroundColor = UIColor.systemBlue
+            config.contentInsets = NSDirectionalEdgeInsets(top: 5, leading: 0, bottom: 5, trailing: 10) // Add trailing padding
             mainMenuButton.configuration = config
         } else {
-            mainMenuButton.contentEdgeInsets = UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
+            // Fallback
+            mainMenuButton.setTitle("‹ Menu", for: .normal)
+            mainMenuButton.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+            mainMenuButton.setTitleColor(UIColor.systemBlue, for: .normal)
+            mainMenuButton.contentEdgeInsets = UIEdgeInsets(top: 5, left: 0, bottom: 5, right: 10)
         }
+        mainMenuButton.backgroundColor = .clear
         mainMenuButton.addTarget(self, action: #selector(didTapMainMenu), for: .touchUpInside)
-        mainMenuButton.isHidden = true // Start hidden
+        mainMenuButton.isHidden = true
         view.addSubview(mainMenuButton)
     }
 
-    // NEW Function for Main Menu Button constraints
     func setupMainMenuButtonConstraints() {
         print("Setting up Main Menu Button constraints")
         let safeArea = view.safeAreaLayoutGuide
         NSLayoutConstraint.activate([
-            mainMenuButton.topAnchor.constraint(equalTo: safeArea.topAnchor, constant: 15),
-            mainMenuButton.trailingAnchor.constraint(equalTo: safeArea.trailingAnchor, constant: -20)
+            // Pin to Top-Left Safe Area
+            mainMenuButton.topAnchor.constraint(equalTo: safeArea.topAnchor, constant: 15), // Same top spacing
+            mainMenuButton.leadingAnchor.constraint(equalTo: safeArea.leadingAnchor, constant: 20), // Pin to left instead of right
+            mainMenuButton.widthAnchor.constraint(lessThanOrEqualToConstant: 100)
+
+            // Optional: Prevent overlap with statusLabel if statusLabel could be very wide
+            // mainMenuButton.trailingAnchor.constraint(lessThanOrEqualTo: statusLabel.leadingAnchor, constant: -10)
         ])
     }
 
-
     func showSetupUI() {
-        print("Showing Setup UI")
-        currentGameState = .setup
-        statusLabel.isHidden = true; boardView.isHidden = true; resetButton.isHidden = true; mainMenuButton.isHidden = true
-        setupUIElements.forEach { $0.isHidden = false }
-        boardView.gestureRecognizers?.forEach { boardView.removeGestureRecognizer($0) }
-    }
+       print("Showing Setup UI")
+       currentGameState = .setup
+       statusLabel.isHidden = true; boardView.isHidden = true; resetButton.isHidden = true; mainMenuButton.isHidden = true
+       print("Setup UI Elements to show: \(setupUIElements.map { type(of: $0) })")
+       setupUIElements.forEach { $0.isHidden = false }
+       // Explicitly ensure title is visible
+       gameTitleLabel.isHidden = false
+       print("showSetupUI - Game Title isHidden: \(gameTitleLabel.isHidden)")
+       boardView.gestureRecognizers?.forEach { boardView.removeGestureRecognizer($0) }
+   }
 
     func showGameUI() {
         print("Showing Game UI")
         currentGameState = .playing
         statusLabel.isHidden = false; boardView.isHidden = false; resetButton.isHidden = false; mainMenuButton.isHidden = false
+        print("Setup UI Elements to hide: \(setupUIElements.map { type(of: $0) })")
         setupUIElements.forEach { $0.isHidden = true }
-        // Add tap recognizer only when game UI is shown
-        // Ensure it's not added multiple times if showGameUI is called again
-        if boardView.gestureRecognizers?.isEmpty ?? true {
-             addTapGestureRecognizer()
-        }
+         // Explicitly ensure title is hidden
+        gameTitleLabel.isHidden = true
+         print("showGameUI - Game Title isHidden: \(gameTitleLabel.isHidden)")
+        if boardView.gestureRecognizers?.isEmpty ?? true { addTapGestureRecognizer() }
     }
 
-    @objc func didTapStartHvsAI() { print("Start Human vs AI tapped"); startGame(mode: .humanVsAI) }
-    @objc func didTapStartHvsH() { print("Start Human vs Human tapped"); startGame(mode: .humanVsHuman) }
     @objc func didTapMainMenu() { print("Main Menu button tapped"); showSetupUI() } // NEW Action
+    @objc func didTapStartEasyAI() { print("Start Easy AI tapped"); startGame(mode: .humanVsAI, difficulty: .easy) }
+    @objc func didTapStartMediumAI() { print("Start Medium AI tapped"); startGame(mode: .humanVsAI, difficulty: .medium) }
+    @objc func didTapStartHardAI() { print("Start Hard AI tapped"); startGame(mode: .humanVsAI, difficulty: .hard) }
+    @objc func didTapStartHvsH() { print("Start Human vs Human tapped"); startGame(mode: .humanVsHuman, difficulty: .easy) } // Difficulty irrelevant for HvsH
 
-    func startGame(mode: GameMode) {
-        print("Starting game mode: \(mode)")
+    func startGame(mode: GameMode, difficulty: AIDifficulty) {
+        print("Starting game mode: \(mode), Difficulty: \(difficulty)")
         self.currentGameMode = mode
+        self.selectedDifficulty = (mode == .humanVsAI) ? difficulty : .easy // Store difficulty only for AI mode
+
         showGameUI() // Transition UI first
-
-        // Initialize / Reset game logic and state
         setupNewGame() // Resets board data, players, cellSize=0, lastDrawnBounds=0
-
-        // CRITICAL: Trigger layout pass for the initial draw
-        view.setNeedsLayout()
-        // We rely on viewDidLayoutSubviews to draw after this layout pass completes
-        // view.layoutIfNeeded() // Can potentially add back if initial draw is still problematic
+        view.setNeedsLayout() // Trigger layout pass for initial draw
 
         print("Game started.")
     }
@@ -424,29 +476,261 @@ class ViewController: UIViewController {
           guard board[tappedRow][tappedCol] == .empty else { print("Guard FAILED: Cell already occupied."); return }
           print("All guards passed. Placing piece..."); placePiece(atRow: tappedRow, col: tappedCol)
     }
-    func placePiece(atRow row: Int, col: Int) { /* ... unchanged ... */
-          guard currentGameState == .playing else { return }; let pieceState: CellState = (currentPlayer == .black) ? .black : .white; board[row][col] = pieceState
-          drawPiece(atRow: row, col: col, player: currentPlayer)
-          if checkForWin(playerState: pieceState, lastRow: row, lastCol: col) { gameOver = true; statusLabel.text = "\(currentPlayer == .black ? "Black" : "White") Wins!"; print("\(currentPlayer) Wins!"); view.isUserInteractionEnabled = true }
-          else if isBoardFull() { gameOver = true; statusLabel.text = "Draw!"; print("Draw!"); view.isUserInteractionEnabled = true }
-          else { switchPlayer() }
+// In placePiece function, ADD interaction enable on game over:
+    func placePiece(atRow row: Int, col: Int) {
+        guard currentGameState == .playing else { return }
+        let pieceState: CellState = (currentPlayer == .black) ? .black : .white; board[row][col] = pieceState
+        drawPiece(atRow: row, col: col, player: currentPlayer)
+        if checkForWin(playerState: pieceState, lastRow: row, lastCol: col) {
+            gameOver = true; statusLabel.text = "\(currentPlayer == .black ? "Black" : "White") Wins!"; print("\(currentPlayer) Wins!")
+            view.isUserInteractionEnabled = true // <<-- ADD HERE
+        } else if isBoardFull() {
+            gameOver = true; statusLabel.text = "Draw!"; print("Draw!")
+            view.isUserInteractionEnabled = true // <<-- ADD HERE
+        } else {
+            switchPlayer() // Switch player only if game not over
+        }
     }
-    func switchPlayer() { /* ... unchanged ... */
-         guard !gameOver else { return }; currentPlayer = (currentPlayer == .black) ? .white : .black; statusLabel.text = "\(currentPlayer == .black ? "Black" : "White")'s Turn"
-         if isAiTurn { view.isUserInteractionEnabled = false; statusLabel.text = "Computer's Turn..."; print("Switching to AI turn..."); DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self] in guard let self = self else { return }; if !self.gameOver && self.isAiTurn { self.performAiTurn() } else { print("AI turn skipped (game over or state changed during delay)"); self.view.isUserInteractionEnabled = true } } }
-         else { print("Switching to Human turn..."); view.isUserInteractionEnabled = true }
+    
+    // Modify switchPlayer interaction handling:
+    func switchPlayer() {
+        guard !gameOver else { return }
+
+        let previousPlayer = currentPlayer // Store previous player
+        currentPlayer = (currentPlayer == .black) ? .white : .black
+        statusLabel.text = "\(currentPlayer == .black ? "Black" : "White")'s Turn"
+
+        if isAiTurn { // Switching TO AI
+            view.isUserInteractionEnabled = false // Disable for AI thinking
+            statusLabel.text = "Computer (\(selectedDifficulty)) Turn..."
+            print("Switching to AI (\(selectedDifficulty)) turn...")
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self] in
+                guard let self = self else { return }
+                // Check state hasn't changed unexpectedly
+                if !self.gameOver && self.isAiTurn {
+                     self.performAiTurn() // AI makes move, which calls placePiece, which calls switchPlayer again
+                } else {
+                     print("AI turn skipped (game over or state changed during delay)")
+                     // If skipped, re-enable interaction because AI didn't move
+                     self.view.isUserInteractionEnabled = true
+                }
+            }
+        } else { // Switching TO Human (from AI or Human)
+            print("Switching to Human turn...")
+            // Enable interaction for the human player's turn
+            view.isUserInteractionEnabled = true
+        }
     }
-    func performAiTurn() { /* ... unchanged ... */
-         guard !gameOver else { view.isUserInteractionEnabled = true; return }; print("AI Turn: Performing AI move...")
-         let emptyCells = findEmptyCells(); if emptyCells.isEmpty { print("AI Turn: No empty cells left."); view.isUserInteractionEnabled = true; return }
-         let humanPlayer: Player = (aiPlayer == .black) ? .white : .black
-         for cell in emptyCells { if checkPotentialWin(player: aiPlayer, position: cell) { print("AI Turn: Found winning move at \(cell)"); placeAiPieceAndEndTurn(at: cell); return } }
-         for cell in emptyCells { if checkPotentialWin(player: humanPlayer, position: cell) { print("AI Turn: Found blocking move at \(cell)"); placeAiPieceAndEndTurn(at: cell); return } }
-         let adjacentCells = findAdjacentEmptyCells(); if let targetCell = adjacentCells.randomElement() { print("AI Turn: Playing random adjacent move at \(targetCell)"); placeAiPieceAndEndTurn(at: targetCell); return }
-         if let targetCell = emptyCells.randomElement() { print("AI Turn: Playing completely random move at \(targetCell)"); placeAiPieceAndEndTurn(at: targetCell); return }
-         print("AI Turn: Could not find any valid move."); view.isUserInteractionEnabled = true
+    
+    // --- AI Logic ---
+    func performAiTurn() {
+        guard !gameOver else { view.isUserInteractionEnabled = true; return }
+        print("AI Turn (\(selectedDifficulty)): Performing move...")
+
+        // --- Branch based on difficulty ---
+        switch selectedDifficulty {
+        case .easy:
+            performEasyAiMove()
+        case .medium:
+            performMediumAiMove() // Now calls the implemented function
+        case .hard:
+            performHardAiMove()   // Still a placeholder -> falls back to easy
+        }
+
+        // Re-enable interaction AFTER the move function completes
+        // This needs care as placeAiPieceAndEndTurn leads back to switchPlayer
+        // Let's manage it more reliably in switchPlayer or placePiece completion
+         DispatchQueue.main.async { // Ensure UI updates happen on main thread
+             // Only re-enable if game isn't over and it's no longer AI's turn
+             if !self.gameOver && !self.isAiTurn {
+                  self.view.isUserInteractionEnabled = true
+                  print("AI Turn (\(self.selectedDifficulty)): Re-enabled user interaction.")
+             } else if self.gameOver {
+                  self.view.isUserInteractionEnabled = true // Ensure enabled if game ended
+                  print("AI Turn (\(self.selectedDifficulty)): Game Over, re-enabled user interaction.")
+             }
+             // If it's still somehow AI's turn (error), keep interaction disabled or handle error
+         }
     }
-    func placeAiPieceAndEndTurn(at position: Position) { /* ... unchanged ... */ placePiece(atRow: position.row, col: position.col) }
+
+    func performEasyAiMove() {
+        let emptyCells = findEmptyCells(); if emptyCells.isEmpty { print("AI Easy: No empty cells left."); return }
+        let humanPlayer: Player = (aiPlayer == .black) ? .white : .black
+
+        // Priority 1: Win
+        for cell in emptyCells { if checkPotentialWin(player: aiPlayer, position: cell) { print("AI Easy: Found winning move at \(cell)"); placeAiPieceAndEndTurn(at: cell); return } }
+        // Priority 2: Block
+        for cell in emptyCells { if checkPotentialWin(player: humanPlayer, position: cell) { print("AI Easy: Found blocking move at \(cell)"); placeAiPieceAndEndTurn(at: cell); return } }
+
+        // --- NEW Priority 3: Make Two ---
+        var makeTwoMoves: [Position] = []
+        for cell in emptyCells {
+            if findMakeTwoMove(for: aiPlayer, potentialPosition: cell, on: self.board) != nil {
+                makeTwoMoves.append(cell)
+            }
+        }
+        if let makeTwoMove = makeTwoMoves.randomElement() {
+            print("AI Easy: Found 'Make Two' move at \(makeTwoMove)")
+            placeAiPieceAndEndTurn(at: makeTwoMove); return
+        }
+
+        // Fallback 1 (was 3): Adjacent Random
+        let adjacentCells = findAdjacentEmptyCells(); if let targetCell = adjacentCells.randomElement() { print("AI Easy: Playing random adjacent move at \(targetCell)"); placeAiPieceAndEndTurn(at: targetCell); return }
+        // Fallback 2 (was 4): Random
+        if let targetCell = emptyCells.randomElement() { print("AI Easy: Playing completely random move at \(targetCell)"); placeAiPieceAndEndTurn(at: targetCell); return }
+        print("AI Easy: Could not find any valid move.")
+    }
+    
+    // --- NEW: Helper for Medium AI - Check for Open Three pattern ---
+    // Checks if placing a piece at 'position' for 'player' would result in
+    // creating or blocking an "Open Three" (_PPP_) along any axis.
+    // Returns the position where the piece should be placed to achieve/block the Open Three.
+    // NOTE: This is a simplified check, more robust checks exist.
+    func findOpenThreeMove(for player: Player, potentialPosition: Position, on boardToCheck: [[CellState]]) -> Position? {
+        let playerState: CellState = (player == .black) ? .black : .white
+        let directions = [(0, 1), (1, 0), (1, 1), (1, -1)] // H, V, Diag\, Diag/
+
+        for (dr, dc) in directions {
+            // Check patterns like: E P P P E (where P is playerState) centered around potentialPosition
+            // The potential move could be one of the 'E's.
+
+            // Check E P P P [E] <- potentialPosition is the last E
+            if checkPattern(pattern: [.empty, playerState, playerState, playerState, .empty],
+                            startRow: potentialPosition.row - dr*4, startCol: potentialPosition.col - dc*4,
+                            direction: (dr, dc), on: boardToCheck) {
+                return potentialPosition // Placing here creates/blocks _PPP[E]
+            }
+            // Check [E] P P P E <- potentialPosition is the first E
+            if checkPattern(pattern: [.empty, playerState, playerState, playerState, .empty],
+                            startRow: potentialPosition.row, startCol: potentialPosition.col,
+                            direction: (dr, dc), on: boardToCheck) {
+                return potentialPosition // Placing here creates/blocks [E]PPPE
+            }
+             // Check P E P P E <- potentialPosition is the middle E (less common but possible block)
+             if checkPattern(pattern: [playerState, .empty, playerState, playerState, .empty],
+                             startRow: potentialPosition.row - dr, startCol: potentialPosition.col - dc,
+                             direction: (dr, dc), on: boardToCheck) {
+                 return potentialPosition
+             }
+              // Check P P E P E <- potentialPosition is the middle E
+             if checkPattern(pattern: [playerState, playerState, .empty, playerState, .empty],
+                             startRow: potentialPosition.row - dr*2, startCol: potentialPosition.col - dc*2,
+                             direction: (dr, dc), on: boardToCheck) {
+                 return potentialPosition
+             }
+              // Check P P P E E <- potentialPosition is the middle E
+             if checkPattern(pattern: [playerState, playerState, playerState, .empty, .empty],
+                             startRow: potentialPosition.row - dr*3, startCol: potentialPosition.col - dc*3,
+                             direction: (dr, dc), on: boardToCheck) {
+                 return potentialPosition
+             }
+        }
+        return nil // No direct Open Three creation/block found at this position
+    }
+    
+    // --- NEW: Helper for AI - Find moves that make two in a row ---
+    // Checks if placing a piece at 'position' for 'player' creates a P P pattern
+    // where one P is the new piece. Looks for _ P _ -> _ P P or P _ _ -> P P _ etc.
+    func findMakeTwoMove(for player: Player, potentialPosition: Position, on boardToCheck: [[CellState]]) -> Position? {
+         let playerState: CellState = (player == .black) ? .black : .white
+         let directions = [(0, 1), (1, 0), (1, 1), (1, -1)]
+
+        for (dr, dc) in directions {
+            // Check pattern _ P [E] (potentialPosition is E)
+            if checkPattern(pattern: [.empty, playerState, .empty],
+                            startRow: potentialPosition.row - dr*2, startCol: potentialPosition.col - dc*2,
+                            direction: (dr, dc), on: boardToCheck) {
+                 return potentialPosition
+            }
+            // Check [E] P _ (potentialPosition is E)
+             if checkPattern(pattern: [.empty, playerState, .empty],
+                            startRow: potentialPosition.row, startCol: potentialPosition.col,
+                            direction: (dr, dc), on: boardToCheck) {
+                 return potentialPosition
+            }
+            // Check P _ [E] (potentialPosition is E)
+            if checkPattern(pattern: [playerState, .empty, .empty],
+                           startRow: potentialPosition.row - dr, startCol: potentialPosition.col - dc,
+                           direction: (dr, dc), on: boardToCheck) {
+                return potentialPosition
+           }
+           // Check [E] _ P (potentialPosition is E)
+           if checkPattern(pattern: [.empty, .empty, playerState],
+                           startRow: potentialPosition.row, startCol: potentialPosition.col,
+                           direction: (dr, dc), on: boardToCheck) {
+               return potentialPosition
+           }
+        }
+        return nil
+    }
+
+    // Helper to check a specific pattern along a line
+    func checkPattern(pattern: [CellState], startRow: Int, startCol: Int, direction: (dr: Int, dc: Int), on boardToCheck: [[CellState]]) -> Bool {
+        for i in 0..<pattern.count {
+            let r = startRow + direction.dr * i
+            let c = startCol + direction.dc * i
+            // Check bounds AND if the cell matches the expected state in the pattern
+            if !checkBounds(row: r, col: c) || boardToCheck[r][c] != pattern[i] {
+                return false // Pattern doesn't match
+            }
+        }
+        return true // Pattern matched successfully
+    }
+
+    func performMediumAiMove() {
+        let emptyCells = findEmptyCells(); if emptyCells.isEmpty { print("AI Medium: No empty cells left."); return }
+        let humanPlayer: Player = (aiPlayer == .black) ? .white : .black
+
+        // 1. Win?
+        for cell in emptyCells { if checkPotentialWin(player: aiPlayer, position: cell) { print("AI Medium: Found winning move at \(cell)"); placeAiPieceAndEndTurn(at: cell); return } }
+        // 2. Block Win?
+        for cell in emptyCells { if checkPotentialWin(player: humanPlayer, position: cell) { print("AI Medium: Found blocking move at \(cell)"); placeAiPieceAndEndTurn(at: cell); return } }
+        // 3. Block Opponent's Open Three?
+        var blockingOpenThreeMoves: [Position] = []; for cell in emptyCells { if findOpenThreeMove(for: humanPlayer, potentialPosition: cell, on: self.board) != nil { blockingOpenThreeMoves.append(cell) } }; if let blockMove = blockingOpenThreeMoves.randomElement() { print("AI Medium: Found blocking Open Three move at \(blockMove)"); placeAiPieceAndEndTurn(at: blockMove); return }
+        // 4. Create Own Open Three?
+        var creatingOpenThreeMoves: [Position] = []; for cell in emptyCells { var tempBoard = self.board; tempBoard[cell.row][cell.col] = (aiPlayer == .black) ? .black : .white; if findOpenThreeMove(for: aiPlayer, potentialPosition: cell, on: tempBoard) != nil { creatingOpenThreeMoves.append(cell) } }; if let createMove = creatingOpenThreeMoves.randomElement() { print("AI Medium: Found creating Open Three move at \(createMove)"); placeAiPieceAndEndTurn(at: createMove); return }
+
+        // --- NEW Priority 5: Make Two ---
+        var makeTwoMoves: [Position] = []
+        for cell in emptyCells {
+            if findMakeTwoMove(for: aiPlayer, potentialPosition: cell, on: self.board) != nil {
+                makeTwoMoves.append(cell)
+            }
+        }
+        if let makeTwoMove = makeTwoMoves.randomElement() {
+            print("AI Medium: Found 'Make Two' move at \(makeTwoMove)")
+            placeAiPieceAndEndTurn(at: makeTwoMove); return
+        }
+
+        // 6. Fallback to Easy AI logic (Adjacent / Random)
+        print("AI Medium: No better move found. Falling back to Easy logic.")
+        // Note: Easy AI now also includes the 'Make Two' check we just added,
+        // making this fallback slightly smarter than before.
+        performEasyAiMove() // Call the enhanced Easy AI logic
+
+        // Removed direct random calls here as Easy handles the final fallbacks
+        // let adjacentCells = findAdjacentEmptyCells(); if let targetCell = adjacentCells.randomElement() { ... }
+        // if let targetCell = emptyCells.randomElement() { ... }
+        // print("AI Medium: Could not find any valid move.") // Easy handles this message
+    }
+    
+    func performHardAiMove() {
+        // --- TEMPORARY FALLBACK ---
+        print("AI Hard: Logic needs rework. Falling back to Medium logic.")
+        performMediumAiMove() // Use Medium logic for now
+
+        /* // --- Keep old heuristic code commented out for later debugging ---
+        let emptyCells = findEmptyCells(); if emptyCells.isEmpty { print("AI Hard: No empty cells left."); return }
+        // ... (rest of the complex heuristic code) ...
+        */
+    }
+
+    // placeAiPieceAndEndTurn remains the same
+    func placeAiPieceAndEndTurn(at position: Position) {
+        placePiece(atRow: position.row, col: position.col)
+        // Interaction is enabled in the completion block of the performAiTurn caller (the DispatchQueue block)
+    }
     func checkPotentialWin(player: Player, position: Position) -> Bool { /* ... unchanged ... */
          var tempBoard = self.board; guard tempBoard[position.row][position.col] == .empty else { return false }; tempBoard[position.row][position.col] = (player == .black) ? .black : .white
          return checkForWinOnBoard(boardToCheck: tempBoard, playerState: tempBoard[position.row][position.col], lastRow: position.row, lastCol: position.col)
