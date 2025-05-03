@@ -65,6 +65,15 @@ class ViewController: UIViewController {
 
     // --- NEW: Main Menu Button ---
     private let mainMenuButton = UIButton(type: .system)
+    
+    // --- NEW: Game Over Overlay UI Elements ---
+    private let gameOverOverlayView = UIView()
+    private let gameOverStatusLabel = UILabel()
+    private let playAgainButton = UIButton(type: .system)
+    // We already have mainMenuButton, just need to add it to the overlay maybe?
+    // Let's create a dedicated one for the overlay for clearer separation.
+    private let overlayMainMenuButton = UIButton(type: .system)
+    private var gameOverUIElements: [UIView] = [] // To manage visibility
 
     // --- Constraint Activation Flag ---
     private var constraintsActivated = false
@@ -73,24 +82,82 @@ class ViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         print("viewDidLoad starting...")
-
-        // Style elements first
         setupMainBackground()
         styleStatusLabel()
         boardView.backgroundColor = .clear
         styleResetButton()
-        createMainMenuButton()
-        createSetupUI() // Creates UI elements
-
-        // Initialize game state & add gesture
+        createMainMenuButton() // For top-left corner
+        createSetupUI()
+        createNewGameOverUI() // <<-- ADD THIS CALL
         setupNewGameVariablesOnly()
-        // addTapGestureRecognizer() // Add only when game starts
-
-        // Show Setup UI Initially
-        showSetupUI()
-
-        // Constraints will be set up and applied in viewWillLayoutSubviews
+        showSetupUI() // Show setup initially
         print("viewDidLoad completed.")
+    }
+
+    // --- NEW: Function to Create Game Over UI ---
+    func createNewGameOverUI() {
+        print("Creating Game Over UI")
+
+        // Overlay View Container
+        gameOverOverlayView.translatesAutoresizingMaskIntoConstraints = false
+        gameOverOverlayView.backgroundColor = UIColor.black.withAlphaComponent(0.65) // Semi-transparent dark
+        gameOverOverlayView.layer.cornerRadius = 15
+        gameOverOverlayView.isHidden = true // Start hidden
+        view.addSubview(gameOverOverlayView) // Add to main view
+
+        // Game Over Status Label (e.g., "White Wins!")
+        gameOverStatusLabel.translatesAutoresizingMaskIntoConstraints = false
+        gameOverStatusLabel.font = UIFont.systemFont(ofSize: 32, weight: .bold)
+        gameOverStatusLabel.textColor = .white
+        gameOverStatusLabel.textAlignment = .center
+        gameOverStatusLabel.numberOfLines = 0 // Allow multiple lines if needed
+        gameOverOverlayView.addSubview(gameOverStatusLabel) // Add TO OVERLAY
+
+        // Play Again Button
+        playAgainButton.translatesAutoresizingMaskIntoConstraints = false
+        configureGameOverButton(playAgainButton, title: "Play Again", color: UIColor.systemGreen.withAlphaComponent(0.8))
+        playAgainButton.addTarget(self, action: #selector(didTapPlayAgain), for: .touchUpInside)
+        gameOverOverlayView.addSubview(playAgainButton) // Add TO OVERLAY
+
+        // Main Menu Button (on Overlay)
+        overlayMainMenuButton.translatesAutoresizingMaskIntoConstraints = false
+        configureGameOverButton(overlayMainMenuButton, title: "Main Menu", color: UIColor.systemBlue.withAlphaComponent(0.8))
+        overlayMainMenuButton.addTarget(self, action: #selector(didTapMainMenu), for: .touchUpInside) // Reuse existing action
+        gameOverOverlayView.addSubview(overlayMainMenuButton) // Add TO OVERLAY
+
+        // Store references
+        gameOverUIElements = [gameOverOverlayView, gameOverStatusLabel, playAgainButton, overlayMainMenuButton]
+    }
+
+    // Helper to style overlay buttons
+    func configureGameOverButton(_ button: UIButton, title: String, color: UIColor) {
+        button.setTitle(title, for: .normal)
+        if #available(iOS 15.0, *) {
+            var config = UIButton.Configuration.filled()
+            config.baseBackgroundColor = color
+            config.baseForegroundColor = .white
+            config.cornerStyle = .medium
+            config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+                var outgoing = incoming
+                outgoing.font = UIFont.systemFont(ofSize: 18, weight: .semibold)
+                return outgoing
+            }
+            config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 20, bottom: 10, trailing: 20)
+            button.configuration = config
+        } else {
+            // Fallback styling
+            button.backgroundColor = color
+            button.setTitleColor(.white, for: .normal)
+            button.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .semibold)
+            button.layer.cornerRadius = 8
+            button.contentEdgeInsets = UIEdgeInsets(top: 10, left: 20, bottom: 10, right: 20)
+        }
+        // Add subtle shadow maybe
+        button.layer.shadowColor = UIColor.black.cgColor
+        button.layer.shadowOffset = CGSize(width: 0, height: 1)
+        button.layer.shadowRadius = 3
+        button.layer.shadowOpacity = 0.3
+        button.layer.masksToBounds = false
     }
     
     // --- NEW Helper to Activate/Deactivate Adaptive Constraints ---
@@ -132,19 +199,47 @@ class ViewController: UIViewController {
 
     override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
-
-        // --- Setup Constraints ONCE ---
         if !constraintsActivated {
             print("viewWillLayoutSubviews: Setting up ALL constraints for the first time.")
-            setupConstraints() // For Game Elements (These stay active)
-            setupSetupUIConstraints() // Creates portrait/landscape sets
-            setupMainMenuButtonConstraints() // Menu Button constraints
+            setupConstraints() // Game Elements
+            setupSetupUIConstraints() // Setup UI
+            setupMainMenuButtonConstraints() // Menu Button
+            setupGameOverUIConstraints() // <<-- ADD THIS CALL
             constraintsActivated = true
-            // Don't activate setup constraints here yet
         }
+        applyAdaptiveSetupConstraints()
+    }
 
-        // --- Apply Setup UI Constraints based on Orientation ---
-        applyAdaptiveSetupConstraints() // Call new helper function
+    // --- NEW: Constraints for Game Over UI ---
+    func setupGameOverUIConstraints() {
+        print("Setting up Game Over UI constraints")
+        let safeArea = view.safeAreaLayoutGuide
+        let buttonSpacing: CGFloat = 20
+
+        NSLayoutConstraint.activate([
+            // Overlay View (Centered, smaller than screen)
+            gameOverOverlayView.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
+            gameOverOverlayView.centerYAnchor.constraint(equalTo: safeArea.centerYAnchor),
+            gameOverOverlayView.widthAnchor.constraint(equalTo: safeArea.widthAnchor, multiplier: 0.7), // 70% of width
+            gameOverOverlayView.heightAnchor.constraint(lessThanOrEqualTo: safeArea.heightAnchor, multiplier: 0.5), // Max 50% height
+
+            // Game Over Status Label (Centered near top of overlay)
+            gameOverStatusLabel.topAnchor.constraint(equalTo: gameOverOverlayView.topAnchor, constant: 30),
+            gameOverStatusLabel.leadingAnchor.constraint(equalTo: gameOverOverlayView.leadingAnchor, constant: 20),
+            gameOverStatusLabel.trailingAnchor.constraint(equalTo: gameOverOverlayView.trailingAnchor, constant: -20),
+            gameOverStatusLabel.centerXAnchor.constraint(equalTo: gameOverOverlayView.centerXAnchor),
+
+            // Play Again Button (Below Status)
+            playAgainButton.topAnchor.constraint(equalTo: gameOverStatusLabel.bottomAnchor, constant: 30),
+            playAgainButton.centerXAnchor.constraint(equalTo: gameOverOverlayView.centerXAnchor),
+
+            // Main Menu Button (Below Play Again)
+            overlayMainMenuButton.topAnchor.constraint(equalTo: playAgainButton.bottomAnchor, constant: buttonSpacing),
+            overlayMainMenuButton.centerXAnchor.constraint(equalTo: gameOverOverlayView.centerXAnchor),
+            overlayMainMenuButton.widthAnchor.constraint(equalTo: playAgainButton.widthAnchor), // Match width
+            // Ensure bottom doesn't go beyond overlay
+            overlayMainMenuButton.bottomAnchor.constraint(lessThanOrEqualTo: gameOverOverlayView.bottomAnchor, constant: -30)
+        ])
     }
 
     override func viewDidLayoutSubviews() {
@@ -402,30 +497,74 @@ class ViewController: UIViewController {
     }
 
     func showSetupUI() {
-       print("Showing Setup UI")
-       currentGameState = .setup
-       statusLabel.isHidden = true; boardView.isHidden = true; resetButton.isHidden = true; mainMenuButton.isHidden = true
-       print("Setup UI Elements to show: \(setupUIElements.map { type(of: $0) })")
-       setupUIElements.forEach { $0.isHidden = false }
-       // Explicitly ensure title is visible
-       gameTitleLabel.isHidden = false
-       print("showSetupUI - Game Title isHidden: \(gameTitleLabel.isHidden)")
-       boardView.gestureRecognizers?.forEach { boardView.removeGestureRecognizer($0) }
-   }
+        print("Showing Setup UI")
+        currentGameState = .setup
+        statusLabel.isHidden = true; boardView.isHidden = true; resetButton.isHidden = true; mainMenuButton.isHidden = true
+        gameOverOverlayView.isHidden = true // <<-- Hide overlay too
+        setupUIElements.forEach { $0.isHidden = false }
+        gameTitleLabel.isHidden = false
+        print("showSetupUI - Game Title isHidden: \(gameTitleLabel.isHidden)")
+        boardView.gestureRecognizers?.forEach { boardView.removeGestureRecognizer($0) }
+    }
 
     func showGameUI() {
         print("Showing Game UI")
         currentGameState = .playing
         statusLabel.isHidden = false; boardView.isHidden = false; resetButton.isHidden = false; mainMenuButton.isHidden = false
-        print("Setup UI Elements to hide: \(setupUIElements.map { type(of: $0) })")
+        gameOverOverlayView.isHidden = true // <<-- Hide overlay when game starts/restarts
         setupUIElements.forEach { $0.isHidden = true }
-         // Explicitly ensure title is hidden
         gameTitleLabel.isHidden = true
-         print("showGameUI - Game Title isHidden: \(gameTitleLabel.isHidden)")
+        print("showGameUI - Game Title isHidden: \(gameTitleLabel.isHidden)")
         if boardView.gestureRecognizers?.isEmpty ?? true { addTapGestureRecognizer() }
     }
 
-    @objc func didTapMainMenu() { print("Main Menu button tapped"); showSetupUI() } // NEW Action
+    // --- NEW: Function to show the Game Over overlay ---
+    func showGameOverOverlay(message: String) {
+        print("Showing Game Over Overlay: \(message)")
+        gameOverStatusLabel.text = message // Set the winner text
+        gameOverOverlayView.isHidden = false
+        gameOverOverlayView.alpha = 0 // Start transparent
+        view.bringSubviewToFront(gameOverOverlayView) // Ensure it's on top
+
+        // Hide the normal reset button and main menu button during overlay
+        resetButton.isHidden = true
+        mainMenuButton.isHidden = true
+
+        // Fade in animation
+        UIView.animate(withDuration: 0.3) {
+            self.gameOverOverlayView.alpha = 1.0
+        }
+        // Keep user interaction enabled for the overlay buttons
+        view.isUserInteractionEnabled = true
+    }
+
+    // --- NEW: Action for "Play Again" button on overlay ---
+    @objc func didTapPlayAgain() {
+        print("Play Again tapped")
+        hideGameOverOverlay()
+        // Reset game with same mode/difficulty
+        startGame(mode: currentGameMode, difficulty: selectedDifficulty)
+    }
+
+    // --- NEW: Function to hide the overlay ---
+    func hideGameOverOverlay() {
+        print("Hiding Game Over Overlay")
+        // Could add fade out animation if desired
+        gameOverOverlayView.isHidden = true
+        // Re-show the normal in-game buttons IF the game is still in playing state
+        // (In case Main Menu was tapped)
+        if currentGameState == .playing {
+             resetButton.isHidden = false
+             mainMenuButton.isHidden = false
+        }
+    }
+
+    // --- MODIFY: `didTapMainMenu` action to also hide overlay ---
+    @objc func didTapMainMenu() {
+        print("Main Menu button tapped")
+        hideGameOverOverlay() // Hide overlay if visible
+        showSetupUI() // Transition back to the setup screen
+    }
     @objc func didTapStartEasyAI() { print("Start Easy AI tapped"); startGame(mode: .humanVsAI, difficulty: .easy) }
     @objc func didTapStartMediumAI() { print("Start Medium AI tapped"); startGame(mode: .humanVsAI, difficulty: .medium) }
     @objc func didTapStartHardAI() { print("Start Hard AI tapped"); startGame(mode: .humanVsAI, difficulty: .hard) }
@@ -563,16 +702,27 @@ class ViewController: UIViewController {
         guard currentGameState == .playing else { return }
         let pieceState: CellState = (currentPlayer == .black) ? .black : .white; board[row][col] = pieceState
         drawPiece(atRow: row, col: col, player: currentPlayer)
-        if checkForWin(playerState: pieceState, lastRow: row, lastCol: col) {
-            gameOver = true; statusLabel.text = "\(currentPlayer == .black ? "Black" : "White") Wins!"; print("\(currentPlayer) Wins!")
-            view.isUserInteractionEnabled = true // <<-- ADD HERE
-        } else if isBoardFull() {
-            gameOver = true; statusLabel.text = "Draw!"; print("Draw!")
-            view.isUserInteractionEnabled = true // <<-- ADD HERE
+
+        let winner = checkForWinner(playerState: pieceState, lastRow: row, lastCol: col) // Use new helper
+
+        if winner != nil || isBoardFull() {
+            gameOver = true
+            let message = (winner != nil) ? "\(winner == .black ? "Black" : "White") Wins!" : "Draw!"
+            statusLabel.text = message // Update status label too
+            print(message)
+            showGameOverOverlay(message: message) // <<-- SHOW OVERLAY
         } else {
-            switchPlayer() // Switch player only if game not over
+            switchPlayer()
         }
     }
+
+    // --- NEW: Helper to determine winner (to avoid duplicate check) ---
+     func checkForWinner(playerState: CellState, lastRow: Int, lastCol: Int) -> Player? {
+         if checkForWinOnBoard(boardToCheck: self.board, playerState: playerState, lastRow: lastRow, lastCol: lastCol) {
+             return (playerState == .black) ? .black : .white
+         }
+         return nil
+     }
     
     // Modify switchPlayer interaction handling:
     func switchPlayer() {
