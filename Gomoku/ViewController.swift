@@ -62,6 +62,7 @@ class ViewController: UIViewController {
     private var lastMoveIndicatorLayer: CALayer?
     private var turnIndicatorBorderLayer: CALayer?
     private var shakeAnimation: CABasicAnimation? // To create shake only once
+    private var turnIndicatorView: UIView?
 
     // --- Game Over Overlay UI Elements ---
     private let gameOverOverlayView = UIVisualEffectView()
@@ -84,6 +85,7 @@ class ViewController: UIViewController {
         createMainMenuButton()
         createSetupUI()
         createNewGameOverUI()
+        setupTurnIndicatorView()
         setupTurnIndicatorBorder()
         setupNewGameVariablesOnly()
         showSetupUI()
@@ -246,70 +248,102 @@ class ViewController: UIViewController {
     }
     // Helper to configure common button styles
     func configureSetupButton(_ button: UIButton, color: UIColor) {
-         button.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .semibold); button.backgroundColor = color; button.setTitleColor(.darkText, for: .normal); button.layer.cornerRadius = 10
-         if #available(iOS 15.0, *) { var config = UIButton.Configuration.filled(); config.baseBackgroundColor = color; config.baseForegroundColor = .darkText; config.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 25, bottom: 12, trailing: 25); button.configuration = config } else { button.contentEdgeInsets = UIEdgeInsets(top: 12, left: 25, bottom: 12, right: 25) }
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .semibold);
+        button.backgroundColor = color;
+        button.setTitleColor(.darkText, for: .normal);
+        button.layer.cornerRadius = 14
+        if #available(iOS 15.0, *) {
+            var config = UIButton.Configuration.filled()
+            config.baseBackgroundColor = color; config.baseForegroundColor = .darkText
+            config.contentInsets = NSDirectionalEdgeInsets(top: 18, leading: 40, bottom: 18, trailing: 40)
+            config.cornerStyle = .large
+            // Ensure font is applied correctly with config
+            config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+                  var outgoing = incoming
+                  outgoing.font = UIFont.systemFont(ofSize: 24, weight: .bold)
+                  return outgoing
+              }
+            button.configuration = config
+        } else {
+            button.contentEdgeInsets = UIEdgeInsets(top: 18, left: 40, bottom: 18, right: 40) // INCREASED padding
+        }
+        button.layer.shadowColor = UIColor.black.cgColor
+         button.layer.shadowOffset = CGSize(width: 0, height: 1)
+         button.layer.shadowRadius = 3
+         button.layer.shadowOpacity = 0.15 // Slightly stronger shadow?
+         button.layer.masksToBounds = false
     }
 
-    // --- FIXED Setup UI Constraints ---
     func setupSetupUIConstraints() {
-        print("Setting up Setup UI constraints (Creating Sets)")
+        print("Setting up Setup UI constraints (V3 - Better Spacing)")
         setupPortraitConstraints.removeAll(); setupLandscapeConstraints.removeAll()
-        guard setupUIElements.count == 5 else { // Should be 5 elements now
-            print("Error: Setup UI elements count mismatch (\(setupUIElements.count)). Expected 5."); return
-        }
-        let safeArea = view.safeAreaLayoutGuide; let buttonSpacing: CGFloat = 15; let titleSpacing: CGFloat = 40
+        guard setupUIElements.count == 5 else { print("Error: Setup UI elements count mismatch (\(setupUIElements.count)). Expected 5."); return }
 
-        // Portrait Constraints Definition
+        let safeArea = view.safeAreaLayoutGuide
+
+        // --- Portrait ---
         setupPortraitConstraints = [
-            gameTitleLabel.topAnchor.constraint(equalTo: safeArea.topAnchor, constant: 80), // Fixed position
+            // Game Title (Higher up, but not cramped)
+            gameTitleLabel.topAnchor.constraint(equalTo: safeArea.topAnchor, constant: view.bounds.height * 0.15), // Relative positioning
             gameTitleLabel.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
-            gameTitleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: safeArea.leadingAnchor, constant: 20), // Added back
-            gameTitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: safeArea.trailingAnchor, constant: -20),  // Added back
+            gameTitleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: safeArea.leadingAnchor, constant: 20),
+            gameTitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: safeArea.trailingAnchor, constant: -20),
 
-            setupTitleLabel.topAnchor.constraint(equalTo: gameTitleLabel.bottomAnchor, constant: titleSpacing * 0.5),
+            // "Choose Game Mode" Label
+            setupTitleLabel.topAnchor.constraint(equalTo: gameTitleLabel.bottomAnchor, constant: view.bounds.height * 0.02),
             setupTitleLabel.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
             setupTitleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: safeArea.leadingAnchor, constant: 20),
             setupTitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: safeArea.trailingAnchor, constant: -20),
 
-            startEasyAIButton.topAnchor.constraint(equalTo: setupTitleLabel.bottomAnchor, constant: titleSpacing),
+            // Buttons Stacked Vertically, more spaced out
+            startEasyAIButton.topAnchor.constraint(equalTo: setupTitleLabel.bottomAnchor, constant: view.bounds.height * 0.05),
             startEasyAIButton.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
-
-            startMediumAIButton.topAnchor.constraint(equalTo: startEasyAIButton.bottomAnchor, constant: buttonSpacing),
+            // Add width constraint relative to safe area for better sizing
+            startEasyAIButton.widthAnchor.constraint(equalTo: safeArea.widthAnchor, multiplier: 0.65), // Make buttons wider
+            startEasyAIButton.heightAnchor.constraint(equalTo: safeArea.heightAnchor, multiplier: 0.1),
+            
+            startMediumAIButton.topAnchor.constraint(equalTo: startEasyAIButton.bottomAnchor, constant: view.bounds.height * 0.05),
             startMediumAIButton.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
-            startMediumAIButton.widthAnchor.constraint(equalTo: startEasyAIButton.widthAnchor),
+            startMediumAIButton.widthAnchor.constraint(equalTo: startEasyAIButton.widthAnchor), // Match width
+            startMediumAIButton.heightAnchor.constraint(equalTo: startEasyAIButton.heightAnchor),
 
-            // H vs H Button now below Medium
-            startHvsHButton.topAnchor.constraint(equalTo: startMediumAIButton.bottomAnchor, constant: buttonSpacing),
+            startHvsHButton.topAnchor.constraint(equalTo: startMediumAIButton.bottomAnchor, constant: view.bounds.height * 0.05),
             startHvsHButton.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
-            startHvsHButton.widthAnchor.constraint(equalTo: startEasyAIButton.widthAnchor)
+            startHvsHButton.widthAnchor.constraint(equalTo: startEasyAIButton.widthAnchor),
+            startHvsHButton.heightAnchor.constraint(equalTo: startMediumAIButton.heightAnchor),
         ]
 
-        // Landscape Constraints Definition (Example: 2x2 Grid)
-        setupLandscapeConstraints = [
-            gameTitleLabel.topAnchor.constraint(equalTo: safeArea.topAnchor, constant: 30),
-            gameTitleLabel.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
-            gameTitleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: safeArea.leadingAnchor, constant: 20), // Added back
-            gameTitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: safeArea.trailingAnchor, constant: -20),  // Added back
+        // --- Landscape (More Horizontal Arrangement) ---
+         setupLandscapeConstraints = [
+             // Game Title (Near Top Left)
+             gameTitleLabel.topAnchor.constraint(equalTo: safeArea.topAnchor, constant: view.bounds.height * 0.05),
+             gameTitleLabel.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
+             gameTitleLabel.leadingAnchor.constraint(equalTo: safeArea.leadingAnchor, constant: 40),
 
+             // "Choose Game Mode" Label (Below Title)
+             setupTitleLabel.topAnchor.constraint(equalTo: gameTitleLabel.bottomAnchor, constant: view.bounds.height * 0.02),
+             setupTitleLabel.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
+             setupTitleLabel.leadingAnchor.constraint(equalTo: gameTitleLabel.leadingAnchor), // Align left with title
 
-            setupTitleLabel.topAnchor.constraint(equalTo: gameTitleLabel.bottomAnchor, constant: 20),
-            setupTitleLabel.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
-
-            // Row 1: Easy | Medium
-            startEasyAIButton.topAnchor.constraint(equalTo: setupTitleLabel.bottomAnchor, constant: 30),
-            startEasyAIButton.trailingAnchor.constraint(equalTo: safeArea.centerXAnchor, constant: -buttonSpacing / 2),
-
-            startMediumAIButton.topAnchor.constraint(equalTo: startEasyAIButton.topAnchor),
-            startMediumAIButton.leadingAnchor.constraint(equalTo: safeArea.centerXAnchor, constant: buttonSpacing / 2),
-            startMediumAIButton.widthAnchor.constraint(equalTo: startEasyAIButton.widthAnchor),
-
-            // Row 2: HvsH (No Hard button) - Position below Easy/Medium row, centered? Or just below Easy?
-            startHvsHButton.topAnchor.constraint(equalTo: startEasyAIButton.bottomAnchor, constant: buttonSpacing), // Below first row
-            startHvsHButton.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor), // Center it
-            startHvsHButton.widthAnchor.constraint(equalTo: startEasyAIButton.widthAnchor) // Maybe match width
-        ]
-        print("Setup UI constraint sets created.")
+             // Easy Button (Above Medium)
+             startEasyAIButton.topAnchor.constraint(equalTo: setupTitleLabel.bottomAnchor, constant: view.bounds.height * 0.05),
+             startEasyAIButton.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor), // Align center X
+             startEasyAIButton.widthAnchor.constraint(equalTo: startHvsHButton.widthAnchor),
+             
+             // Medium Button (Above HvsH)
+             startMediumAIButton.topAnchor.constraint(equalTo: startEasyAIButton.bottomAnchor, constant: view.bounds.height * 0.05),
+             startMediumAIButton.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor), // Align center X
+             startMediumAIButton.widthAnchor.constraint(equalTo: startHvsHButton.widthAnchor),
+             
+             // HvsH Button (Maybe on the right side?)
+             startHvsHButton.topAnchor.constraint(equalTo: startMediumAIButton.bottomAnchor, constant: view.bounds.height * 0.05),
+             startHvsHButton.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
+             startHvsHButton.widthAnchor.constraint(equalTo: safeArea.widthAnchor, multiplier: 0.35),
+             
+         ]
+        print("Setup UI constraint sets V3 created.")
     }
+
 
     // NEW Helper to Activate/Deactivate Adaptive Constraints
     func applyAdaptiveSetupConstraints() {
@@ -348,13 +382,71 @@ class ViewController: UIViewController {
          print("Setting up Game Over UI constraints"); let safeArea = view.safeAreaLayoutGuide; let buttonSpacing: CGFloat = 20; let overlayContentView = gameOverOverlayView.contentView
          NSLayoutConstraint.activate([ gameOverOverlayView.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor), gameOverOverlayView.centerYAnchor.constraint(equalTo: safeArea.centerYAnchor), gameOverOverlayView.widthAnchor.constraint(equalTo: safeArea.widthAnchor, multiplier: 0.7), gameOverOverlayView.heightAnchor.constraint(lessThanOrEqualTo: safeArea.heightAnchor, multiplier: 0.5), gameOverStatusLabel.topAnchor.constraint(equalTo: overlayContentView.topAnchor, constant: 30), gameOverStatusLabel.leadingAnchor.constraint(equalTo: overlayContentView.leadingAnchor, constant: 20), gameOverStatusLabel.trailingAnchor.constraint(equalTo: overlayContentView.trailingAnchor, constant: -20), playAgainButton.topAnchor.constraint(equalTo: gameOverStatusLabel.bottomAnchor, constant: 30), playAgainButton.centerXAnchor.constraint(equalTo: overlayContentView.centerXAnchor), overlayMainMenuButton.topAnchor.constraint(equalTo: playAgainButton.bottomAnchor, constant: buttonSpacing), overlayMainMenuButton.centerXAnchor.constraint(equalTo: overlayContentView.centerXAnchor), overlayMainMenuButton.widthAnchor.constraint(equalTo: playAgainButton.widthAnchor), overlayMainMenuButton.bottomAnchor.constraint(lessThanOrEqualTo: overlayContentView.bottomAnchor, constant: -30) ])
     }
+    
+    func setupTurnIndicatorView() {
+        guard statusLabel != nil else { return } // Need status label to anchor to
+
+        let indicator = UIView()
+        indicator.translatesAutoresizingMaskIntoConstraints = false
+        indicator.backgroundColor = .clear // Start clear, color set later
+        indicator.layer.cornerRadius = 1.5 // Slightly rounded ends
+        indicator.isHidden = true // Start hidden (only show during gameplay)
+        view.addSubview(indicator)
+        self.turnIndicatorView = indicator
+
+        // Constraints: Below statusLabel, centered, fixed height, dynamic width
+        NSLayoutConstraint.activate([
+            indicator.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 4), // Space below label
+            indicator.heightAnchor.constraint(equalToConstant: 3), // Thickness of the underline
+            indicator.centerXAnchor.constraint(equalTo: statusLabel.centerXAnchor),
+             // Width constraint will be added/updated dynamically
+        ])
+        print("Turn indicator view created.")
+    }
+
+    // --- NEW: Update Function for Underline Indicator ---
+    func updateTurnIndicatorLine() {
+        guard let indicator = turnIndicatorView, let label = statusLabel else { return }
+
+        let targetColor: UIColor
+        let targetWidth: CGFloat
+
+        if gameOver || currentGameState != .playing {
+            targetColor = .clear // Hide indicator if game over or not playing
+            targetWidth = 0
+        } else {
+            targetColor = (currentPlayer == .black) ? .black : UIColor(white: 0.9, alpha: 0.9) // Black or light gray/white
+             // Estimate width based on label content (adjust multiplier as needed)
+             targetWidth = label.intrinsicContentSize.width * 0.6
+        }
+
+        // Animate color and width change
+        UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5, options: .curveEaseOut, animations: {
+            indicator.backgroundColor = targetColor
+            // Update width constraint (find existing or add new one)
+             if let widthConstraint = indicator.constraints.first(where: { $0.firstAttribute == .width }) {
+                  widthConstraint.constant = targetWidth
+             } else {
+                  indicator.widthAnchor.constraint(equalToConstant: targetWidth).isActive = true
+             }
+            // Ensure view updates layout if width changes
+             indicator.superview?.layoutIfNeeded() // Animate layout changes
+        }, completion: nil)
+
+        // Ensure visibility matches game state
+        indicator.isHidden = (gameOver || currentGameState != .playing)
+
+        print("Updated turn indicator line for \(currentPlayer)")
+    }
+
+
 
     // Visibility Functions (Unchanged - Already handle title visibility)
     func showSetupUI() { /* ... */
-         print("Showing Setup UI"); currentGameState = .setup; statusLabel.isHidden = true; boardView.isHidden = true; resetButton.isHidden = true; mainMenuButton.isHidden = true; gameOverOverlayView.isHidden = true; setupUIElements.forEach { $0.isHidden = false }; gameTitleLabel.isHidden = false; print("showSetupUI - Game Title isHidden: \(gameTitleLabel.isHidden)"); boardView.gestureRecognizers?.forEach { boardView.removeGestureRecognizer($0) }
+        print("Showing Setup UI"); currentGameState = .setup; statusLabel.isHidden = true; boardView.isHidden = true; resetButton.isHidden = true; mainMenuButton.isHidden = true; gameOverOverlayView.isHidden = true; turnIndicatorView?.isHidden = true; setupUIElements.forEach { $0.isHidden = false }; gameTitleLabel.isHidden = false; print("showSetupUI - Game Title isHidden: \(gameTitleLabel.isHidden)"); boardView.gestureRecognizers?.forEach { boardView.removeGestureRecognizer($0) }
     }
     func showGameUI() { /* ... */
-        print("Showing Game UI"); currentGameState = .playing; statusLabel.isHidden = false; boardView.isHidden = false; resetButton.isHidden = false; mainMenuButton.isHidden = false; gameOverOverlayView.isHidden = true; setupUIElements.forEach { $0.isHidden = true }; gameTitleLabel.isHidden = true; print("showGameUI - Game Title isHidden: \(gameTitleLabel.isHidden)"); if boardView.gestureRecognizers?.isEmpty ?? true { addTapGestureRecognizer() }
+        print("Showing Game UI"); currentGameState = .playing; statusLabel.isHidden = false; boardView.isHidden = false; resetButton.isHidden = false; mainMenuButton.isHidden = false; gameOverOverlayView.isHidden = true; turnIndicatorView?.isHidden = false; setupUIElements.forEach { $0.isHidden = true }; gameTitleLabel.isHidden = true; print("showGameUI - Game Title isHidden: \(gameTitleLabel.isHidden)"); if boardView.gestureRecognizers?.isEmpty ?? true { addTapGestureRecognizer() }; DispatchQueue.main.async { self.updateTurnIndicatorLine() }
     }
     func showGameOverOverlay(message: String) { /* ... */
         print("Showing Game Over Overlay: \(message)"); gameOverStatusLabel.text = message; gameOverOverlayView.isHidden = false; gameOverOverlayView.alpha = 0; gameOverOverlayView.transform = CGAffineTransform(scaleX: 1.1, y: 1.1); view.bringSubviewToFront(gameOverOverlayView); resetButton.isHidden = true; mainMenuButton.isHidden = true; UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0.3, options: .curveEaseOut, animations: { self.gameOverOverlayView.alpha = 1.0; self.gameOverOverlayView.transform = .identity }, completion: nil); view.isUserInteractionEnabled = true
@@ -374,7 +466,62 @@ class ViewController: UIViewController {
 
     // --- Styling Functions (Unchanged, including FIXED styleResetButton) ---
     func setupMainBackground() { /* ... */ backgroundGradientLayer?.removeFromSuperlayer(); let gradient = CAGradientLayer(); gradient.frame = self.view.bounds; let topColor = UIColor(red: 0.96, green: 0.97, blue: 0.98, alpha: 1.0).cgColor; let bottomColor = UIColor(red: 0.91, green: 0.92, blue: 0.93, alpha: 1.0).cgColor; gradient.colors = [topColor, bottomColor]; gradient.startPoint = CGPoint(x: 0.5, y: 0.0); gradient.endPoint = CGPoint(x: 0.5, y: 1.0); self.view.layer.insertSublayer(gradient, at: 0); self.backgroundGradientLayer = gradient }
-    func styleResetButton() { /* ... */ guard let button = resetButton else { return }; print("Styling Reset Button..."); let bgColor = UIColor(red: 0.95, green: 0.95, blue: 0.97, alpha: 1.0); let textColor = UIColor(red: 0.2, green: 0.2, blue: 0.2, alpha: 1.0); let borderColor = UIColor(red: 0.75, green: 0.75, blue: 0.75, alpha: 0.8); button.backgroundColor = bgColor; button.setTitleColor(textColor, for: .normal); button.setTitleColor(textColor.withAlphaComponent(0.5), for: .highlighted); button.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .semibold); button.layer.cornerRadius = 8; button.layer.borderWidth = 0.75; button.layer.borderColor = borderColor.cgColor; button.layer.shadowColor = UIColor.black.cgColor; button.layer.shadowOffset = CGSize(width: 0, height: 1); button.layer.shadowRadius = 2.5; button.layer.shadowOpacity = 0.12; button.layer.masksToBounds = false; button.contentEdgeInsets = UIEdgeInsets(top: 10, left: 20, bottom: 10, right: 20); print("Reset Button styling applied using direct properties.") }
+    func styleResetButton() {
+        guard let button = resetButton else { return }
+        print("Styling Reset Button (V3 - with Icon)...")
+
+        if #available(iOS 15.0, *) {
+            var config = UIButton.Configuration.filled() // Or .tinted() or .gray()
+
+            // Text
+            config.title = "Reset Game"
+            config.attributedTitle?.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
+
+            // Icon
+            config.image = UIImage(systemName: "arrow.counterclockwise.circle") // Example icon
+            config.imagePadding = 8 // Space between icon and text
+            config.imagePlacement = .leading // Icon on the left
+
+            // Colors
+            config.baseBackgroundColor = UIColor(red: 0.90, green: 0.91, blue: 0.93, alpha: 1.0) // Slightly darker grey base
+            config.baseForegroundColor = UIColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1.0) // Dark text/icon
+
+            // Appearance
+            config.cornerStyle = .medium // Or .capsule, .large, .small
+            config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 18, bottom: 10, trailing: 18) // Adjust padding
+
+            // Apply config
+            button.configuration = config
+
+            // Layer Styling (Shadow - still applied to the layer)
+            button.layer.shadowColor = UIColor.black.cgColor
+            button.layer.shadowOffset = CGSize(width: 0, height: 1)
+            button.layer.shadowRadius = 2.5
+            button.layer.shadowOpacity = 0.12
+            button.layer.masksToBounds = false
+
+        } else {
+            // --- Fallback for < iOS 15 (Direct properties) ---
+            let buttonBackgroundColor = UIColor(red: 0.95, green: 0.95, blue: 0.97, alpha: 1.0)
+            let buttonTextColor = UIColor(red: 0.2, green: 0.2, blue: 0.2, alpha: 1.0)
+            let buttonBorderColor = UIColor(red: 0.75, green: 0.75, blue: 0.75, alpha: 0.8)
+            button.backgroundColor = buttonBackgroundColor
+            button.setTitleColor(buttonTextColor, for: .normal)
+            button.setTitleColor(buttonTextColor.withAlphaComponent(0.5), for: .highlighted)
+            button.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
+            button.layer.cornerRadius = 8
+            button.layer.borderWidth = 0.75
+            button.layer.borderColor = buttonBorderColor.cgColor
+            button.layer.shadowColor = UIColor.black.cgColor
+            button.layer.shadowOffset = CGSize(width: 0, height: 1)
+            button.layer.shadowRadius = 2.5
+            button.layer.shadowOpacity = 0.12
+            button.layer.masksToBounds = false
+            button.contentEdgeInsets = UIEdgeInsets(top: 10, left: 20, bottom: 10, right: 20)
+            // Cannot easily add system icon pre-iOS 15 without images
+        }
+        print("Reset Button styling applied (V3).")
+    }
     func styleStatusLabel() { /* ... */ guard let label = statusLabel else { return }; label.font = UIFont.systemFont(ofSize: 22, weight: .medium); label.textColor = UIColor(red: 0.15, green: 0.15, blue: 0.15, alpha: 1.0); label.textAlignment = .center; label.layer.shadowColor = UIColor.black.cgColor; label.layer.shadowOffset = CGSize(width: 0, height: 1); label.layer.shadowRadius = 2.0; label.layer.shadowOpacity = 0.1; label.layer.masksToBounds = false }
 
     // --- Drawing Functions (Unchanged) ---
@@ -489,8 +636,10 @@ class ViewController: UIViewController {
              setupTurnIndicatorBorder() // Create if first game
         }
         updateTurnIndicator() // Set color for Black's turn
+        updateTurnIndicatorLine() 
         // --- End Indicator Update ---
-
+        
+        print("setupNewGame: Reset state, cellSize, lastDrawnBoardBounds, removed win/move indicators. Updated turn indicator.")
         view.setNeedsLayout() }
     func calculateCellSize() -> CGFloat { /* ... */ guard boardView.bounds.width > 0, boardView.bounds.height > 0 else { return 0 }; let boardDimension = min(boardView.bounds.width, boardView.bounds.height) - (boardPadding * 2); guard boardSize > 1 else { return boardDimension }; let size = boardDimension / CGFloat(boardSize - 1); return max(0, size) }
     func addTapGestureRecognizer() { /* ... */ guard let currentBoardView = boardView else { print("FATAL ERROR: boardView outlet is NIL..."); return }; print("addTapGestureRecognizer attempting to add..."); currentBoardView.gestureRecognizers?.forEach { currentBoardView.removeGestureRecognizer($0) }; let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:))); currentBoardView.addGestureRecognizer(tap); print("--> Tap Gesture Recognizer ADDED.") }
@@ -572,13 +721,13 @@ class ViewController: UIViewController {
 
 
         if let winningPositions = findWinningLine(playerState: pieceState, lastRow: row, lastCol: col) {
-            gameOver = true; updateTurnIndicator(); let winner = (pieceState == .black) ? "Black" : "White"; let message = "\(winner) Wins!"
+            gameOver = true; updateTurnIndicator(); updateTurnIndicatorLine(); let winner = (pieceState == .black) ? "Black" : "White"; let message = "\(winner) Wins!"
             statusLabel.text = message; print(message); drawWinningLine(positions: winningPositions)
             showGameOverOverlay(message: message); view.isUserInteractionEnabled = true
             lastMoveIndicatorLayer?.removeFromSuperlayer() // Remove indicator immediately on win
             lastMoveIndicatorLayer = nil
         } else if isBoardFull() {
-            gameOver = true; updateTurnIndicator(); statusLabel.text = "Draw!"; print("Draw!")
+            gameOver = true; updateTurnIndicator(); updateTurnIndicatorLine(); statusLabel.text = "Draw!"; print("Draw!")
             showGameOverOverlay(message: "Draw!"); view.isUserInteractionEnabled = true
             lastMoveIndicatorLayer?.removeFromSuperlayer() // Remove indicator immediately on draw
             lastMoveIndicatorLayer = nil
@@ -587,7 +736,7 @@ class ViewController: UIViewController {
         }
     }
     func findWinningLine(playerState: CellState, lastRow: Int, lastCol: Int) -> [Position]? { /* ... */ guard playerState != .empty else { return nil }; let directions = [(0, 1), (1, 0), (1, 1), (1, -1)]; for (dr, dc) in directions { var linePositions: [Position] = [Position(row: lastRow, col: lastCol)]; for i in 1..<5 { let r = lastRow + dr * i; let c = lastCol + dc * i; if checkBounds(row: r, col: c) && board[r][c] == playerState { linePositions.append(Position(row: r, col: c)) } else { break } }; for i in 1..<5 { let r = lastRow - dr * i; let c = lastCol - dc * i; if checkBounds(row: r, col: c) && board[r][c] == playerState { linePositions.append(Position(row: r, col: c)) } else { break } }; if linePositions.count >= 5 { linePositions.sort { ($0.row, $0.col) < ($1.row, $1.col) }; return Array(linePositions.prefix(5)) } }; return nil }
-    func switchPlayer() { /* ... */ guard !gameOver else { return }; let previousPlayer = currentPlayer; currentPlayer = (currentPlayer == .black) ? .white : .black; statusLabel.text = "\(currentPlayer == .black ? "Black" : "White")'s Turn"; updateTurnIndicator(); if isAiTurn { view.isUserInteractionEnabled = false; statusLabel.text = "Computer (\(selectedDifficulty)) Turn..."; print("Switching to AI (\(selectedDifficulty)) turn..."); DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self] in guard let self = self else { return }; if !self.gameOver && self.isAiTurn { self.performAiTurn() } else { print("AI turn skipped (game over or state changed during delay)"); self.view.isUserInteractionEnabled = true } } } else { print("Switching to Human turn..."); view.isUserInteractionEnabled = true } }
+    func switchPlayer() { /* ... */ guard !gameOver else { return }; let previousPlayer = currentPlayer; currentPlayer = (currentPlayer == .black) ? .white : .black; statusLabel.text = "\(currentPlayer == .black ? "Black" : "White")'s Turn"; updateTurnIndicator(); updateTurnIndicatorLine(); if isAiTurn { view.isUserInteractionEnabled = false; statusLabel.text = "Computer (\(selectedDifficulty)) Turn..."; print("Switching to AI (\(selectedDifficulty)) turn..."); DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self] in guard let self = self else { return }; if !self.gameOver && self.isAiTurn { self.performAiTurn() } else { print("AI turn skipped (game over or state changed during delay)"); self.view.isUserInteractionEnabled = true } } } else { print("Switching to Human turn..."); view.isUserInteractionEnabled = true } }
 
     // --- ADD THIS FUNCTION BACK ---
     // Helper for Hard AI - Check for moves creating a Four threat
@@ -864,7 +1013,50 @@ class ViewController: UIViewController {
     }
 
     // --- Reset Button Logic (Unchanged) ---
-    @IBAction func resetButtonTapped(_ sender: UIButton) { /* ... */ print("Reset button DOWN"); UIView.animate(withDuration: 0.08, delay: 0, options: [.allowUserInteraction, .curveEaseOut], animations: { sender.transform = CGAffineTransform(scaleX: 0.92, y: 0.92) }, completion: nil); if currentGameState == .playing { print("Resetting game..."); setupNewGame(); if !isAiTurn { view.isUserInteractionEnabled = true } } else { print("Reset tapped while in setup state - doing nothing.") }; sender.addTarget(self, action: #selector(resetButtonReleased(_:)), for: .touchUpInside); sender.addTarget(self, action: #selector(resetButtonReleased(_:)), for: .touchUpOutside); sender.addTarget(self, action: #selector(resetButtonReleased(_:)), for: .touchCancel) }
-    @IBAction func resetButtonReleased(_ sender: UIButton) { /* ... */ print("Reset button RELEASED"); UIView.animate(withDuration: 0.08, delay: 0, options: [.allowUserInteraction, .curveEaseOut], animations: { sender.transform = .identity }, completion: { _ in sender.removeTarget(self, action: #selector(self.resetButtonReleased(_:)), for: .touchUpInside); sender.removeTarget(self, action: #selector(self.resetButtonReleased(_:)), for: .touchUpOutside); sender.removeTarget(self, action: #selector(self.resetButtonReleased(_:)), for: .touchCancel)}) }
+    @IBAction func resetButtonTapped(_ sender: UIButton) {
+        print("Reset button DOWN")
+        sender.transform = .identity // Ensure reset before new animation
+
+        // --- Animate DOWN immediately ---
+        UIView.animate(withDuration: 0.08, delay: 0, options: [.allowUserInteraction, .curveEaseOut], animations: {
+             sender.transform = CGAffineTransform(scaleX: 0.94, y: 0.94) // Slightly different scale maybe
+             // Change background slightly on press (only works well if NOT using config background)
+              if #unavailable(iOS 15.0) { // Or check if config is nil
+                  sender.backgroundColor = UIColor(red: 0.88, green: 0.89, blue: 0.91, alpha: 1.0) // Slightly darker
+              } else {
+                   // For config, maybe animate alpha if direct background color change doesn't work
+                   sender.alpha = 0.85
+              }
+        }, completion: nil)
+
+         // Reset Game Logic
+         if currentGameState == .playing { print("Resetting game..."); setupNewGame(); if !isAiTurn { view.isUserInteractionEnabled = true } }
+         else { print("Reset tapped while in setup state - doing nothing.") }
+
+         // Add targets for release animation
+         sender.addTarget(self, action: #selector(resetButtonReleased(_:)), for: .touchUpInside)
+         sender.addTarget(self, action: #selector(resetButtonReleased(_:)), for: .touchUpOutside)
+         sender.addTarget(self, action: #selector(resetButtonReleased(_:)), for: .touchCancel)
+    }
+
+    @IBAction func resetButtonReleased(_ sender: UIButton) {
+        print("Reset button RELEASED")
+        // Animate back to normal state when finger lifts up
+        UIView.animate(withDuration: 0.1, delay: 0, options: [.allowUserInteraction, .curveEaseIn], animations: {
+            sender.transform = .identity
+             // Restore original background/alpha
+             if #unavailable(iOS 15.0) {
+                  // Use the color defined in styleResetButton
+                   sender.backgroundColor = UIColor(red: 0.95, green: 0.95, blue: 0.97, alpha: 1.0)
+             } else {
+                  sender.alpha = 1.0
+             }
+        }, completion: { _ in
+            // Remove targets
+            sender.removeTarget(self, action: #selector(self.resetButtonReleased(_:)), for: .touchUpInside)
+            sender.removeTarget(self, action: #selector(self.resetButtonReleased(_:)), for: .touchUpOutside)
+            sender.removeTarget(self, action: #selector(self.resetButtonReleased(_:)), for: .touchCancel)
+        })
+    }
 
 } // End of ViewController class
