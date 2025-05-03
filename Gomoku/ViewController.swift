@@ -62,6 +62,7 @@ class ViewController: UIViewController {
     private let startHardAIButton = UIButton(type: .system)
     private let startHvsHButton = UIButton(type: .system)
     private var setupUIElements: [UIView] = []
+    private var winningLineLayer: CAShapeLayer?
 
     // --- NEW: Main Menu Button ---
     private let mainMenuButton = UIButton(type: .system)
@@ -664,11 +665,23 @@ class ViewController: UIViewController {
     func setupNewGameVariablesOnly() {
         currentPlayer = .black; board = Array(repeating: Array(repeating: .empty, count: boardSize), count: boardSize); gameOver = false; pieceViews = Array(repeating: Array(repeating: nil, count: boardSize), count: boardSize)
     }
-    func setupNewGame() { /* ... unchanged ... */
-        print("setupNewGame called. Current Mode: \(currentGameMode)"); gameOver = false; currentPlayer = .black; statusLabel.text = "Black's Turn"; board = Array(repeating: Array(repeating: .empty, count: boardSize), count: boardSize)
-        boardView.subviews.forEach { $0.removeFromSuperview() }; boardView.layer.sublayers?.filter { $0.name == "gridLine" }.forEach { $0.removeFromSuperlayer() }; woodBackgroundLayers.forEach { $0.removeFromSuperlayer() }; woodBackgroundLayers.removeAll()
-        pieceViews = Array(repeating: Array(repeating: nil, count: boardSize), count: boardSize); cellSize = 0; lastDrawnBoardBounds = .zero
-        print("setupNewGame: Reset state, cellSize, and lastDrawnBoardBounds.")
+    func setupNewGame() {
+        gameOver = false; currentPlayer = .black; statusLabel.text = "Black's Turn"
+        board = Array(repeating: Array(repeating: .empty, count: boardSize), count: boardSize)
+
+        // --- Cleanup UI ---
+        boardView.subviews.forEach { $0.removeFromSuperview() } // Pieces
+        boardView.layer.sublayers?.filter { $0.name == "gridLine" }.forEach { $0.removeFromSuperlayer() } // Grid
+        woodBackgroundLayers.forEach { $0.removeFromSuperlayer() }; woodBackgroundLayers.removeAll() // Wood BG
+        winningLineLayer?.removeFromSuperlayer() // <<-- Remove Winning Line
+        winningLineLayer = nil                   // <<-- Clear Reference
+
+        // Reset state variables
+        pieceViews = Array(repeating: Array(repeating: nil, count: boardSize), count: boardSize)
+        cellSize = 0
+        lastDrawnBoardBounds = .zero
+
+        print("setupNewGame: Reset state, cellSize, lastDrawnBoardBounds, and removed win line.")
         view.setNeedsLayout()
     }
     func calculateCellSize() -> CGFloat { /* ... unchanged ... */
@@ -697,23 +710,63 @@ class ViewController: UIViewController {
           guard board[tappedRow][tappedCol] == .empty else { print("Guard FAILED: Cell already occupied."); return }
           print("All guards passed. Placing piece..."); placePiece(atRow: tappedRow, col: tappedCol)
     }
-// In placePiece function, ADD interaction enable on game over:
+    
     func placePiece(atRow row: Int, col: Int) {
         guard currentGameState == .playing else { return }
         let pieceState: CellState = (currentPlayer == .black) ? .black : .white; board[row][col] = pieceState
         drawPiece(atRow: row, col: col, player: currentPlayer)
 
-        let winner = checkForWinner(playerState: pieceState, lastRow: row, lastCol: col) // Use new helper
-
-        if winner != nil || isBoardFull() {
+        // --- Use new check to find winning line ---
+        if let winningPositions = findWinningLine(playerState: pieceState, lastRow: row, lastCol: col) {
             gameOver = true
-            let message = (winner != nil) ? "\(winner == .black ? "Black" : "White") Wins!" : "Draw!"
-            statusLabel.text = message // Update status label too
+            let winner = (pieceState == .black) ? "Black" : "White"
+            let message = "\(winner) Wins!"
+            statusLabel.text = message
             print(message)
-            showGameOverOverlay(message: message) // <<-- SHOW OVERLAY
+            drawWinningLine(positions: winningPositions) // <<-- Draw the line
+            showGameOverOverlay(message: message)
+            view.isUserInteractionEnabled = true
+        } else if isBoardFull() {
+            gameOver = true; statusLabel.text = "Draw!"; print("Draw!")
+            showGameOverOverlay(message: "Draw!") // Show overlay for draw too
+            view.isUserInteractionEnabled = true
         } else {
             switchPlayer()
         }
+    }
+    
+    func drawWinningLine(positions: [Position]) {
+        guard positions.count >= 2 else { return } // Need at least 2 points for a line
+
+        // Remove any previous winning line
+        winningLineLayer?.removeFromSuperlayer()
+
+        let path = UIBezierPath()
+        // Convert first position to view coordinates
+        let firstPos = positions.first!
+        let startX = boardPadding + CGFloat(firstPos.col) * cellSize
+        let startY = boardPadding + CGFloat(firstPos.row) * cellSize
+        path.move(to: CGPoint(x: startX, y: startY))
+
+        // Convert last position to view coordinates
+        let lastPos = positions.last!
+        let endX = boardPadding + CGFloat(lastPos.col) * cellSize
+        let endY = boardPadding + CGFloat(lastPos.row) * cellSize
+        path.addLine(to: CGPoint(x: endX, y: endY))
+
+        // Create the shape layer
+        let shapeLayer = CAShapeLayer()
+        shapeLayer.path = path.cgPath
+        shapeLayer.strokeColor = UIColor.red.withAlphaComponent(0.8).cgColor // Red line
+        shapeLayer.lineWidth = 5.0 // Make it thick enough to see
+        shapeLayer.lineCap = .round // Rounded ends
+        shapeLayer.lineJoin = .round
+        shapeLayer.name = "winningLine" // Give it a name for potential removal
+
+        // Add the layer ON TOP of the boardView (above pieces)
+        boardView.layer.addSublayer(shapeLayer)
+        self.winningLineLayer = shapeLayer // Store reference
+        print("Winning line drawn.")
     }
 
     // --- NEW: Helper to determine winner (to avoid duplicate check) ---
@@ -784,6 +837,45 @@ class ViewController: UIViewController {
              }
              // If it's still somehow AI's turn (error), keep interaction disabled or handle error
          }
+    }
+    
+    // --- NEW: Modified win check to return winning positions ---
+    func findWinningLine(playerState: CellState, lastRow: Int, lastCol: Int) -> [Position]? {
+        guard playerState != .empty else { return nil }
+        let directions = [(0, 1), (1, 0), (1, 1), (1, -1)] // H, V, Diag\, Diag/
+
+        for (dr, dc) in directions {
+            var linePositions: [Position] = [Position(row: lastRow, col: lastCol)] // Start with the last placed piece
+
+            // Check positive direction
+            for i in 1..<5 {
+                let r = lastRow + dr * i; let c = lastCol + dc * i
+                if checkBounds(row: r, col: c) && board[r][c] == playerState {
+                    linePositions.append(Position(row: r, col: c))
+                } else {
+                    break
+                }
+            }
+            // Check negative direction
+            for i in 1..<5 {
+                let r = lastRow - dr * i; let c = lastCol - dc * i
+                if checkBounds(row: r, col: c) && board[r][c] == playerState {
+                    linePositions.append(Position(row: r, col: c))
+                } else {
+                    break
+                }
+            }
+
+            // Did we find 5 or more?
+            if linePositions.count >= 5 {
+                // Sort the positions for consistent line drawing (optional but nice)
+                linePositions.sort { ($0.row, $0.col) < ($1.row, $1.col) }
+                // Return only the first 5 if more were found (standard Gomoku rule)
+                // Or return all if you prefer highlighting longer lines
+                return Array(linePositions.prefix(5)) // Or just return linePositions
+            }
+        }
+        return nil // No winning line found
     }
 
     func performEasyAiMove() {
