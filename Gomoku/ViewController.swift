@@ -814,52 +814,38 @@ class ViewController: UIViewController {
         print("AI Easy: Could not find any valid move.")
     }
     
-    // --- NEW: Helper for Medium AI - Check for Open Three pattern ---
-    // Checks if placing a piece at 'position' for 'player' would result in
-    // creating or blocking an "Open Three" (_PPP_) along any axis.
-    // Returns the position where the piece should be placed to achieve/block the Open Three.
-    // NOTE: This is a simplified check, more robust checks exist.
-    func findOpenThreeMove(for player: Player, potentialPosition: Position, on boardToCheck: [[CellState]]) -> Position? {
+    // --- REVISED: Helper for Medium AI - Check for SPECIFIC Open Three pattern ---
+    // Checks if placing a piece at 'potentialPosition' for 'player'
+    // would complete an _PPP_ pattern (where potentialPosition is one of the _)
+    func findSpecificOpenThreeMove(for player: Player, potentialPosition: Position, on boardToCheck: [[CellState]]) -> Bool {
         let playerState: CellState = (player == .black) ? .black : .white
         let directions = [(0, 1), (1, 0), (1, 1), (1, -1)] // H, V, Diag\, Diag/
 
-        for (dr, dc) in directions {
-            // Check patterns like: E P P P E (where P is playerState) centered around potentialPosition
-            // The potential move could be one of the 'E's.
+        // Ensure the potential position is actually empty on the board being checked
+        guard checkBounds(row: potentialPosition.row, col: potentialPosition.col) &&
+              boardToCheck[potentialPosition.row][potentialPosition.col] == .empty else {
+            return false // Cannot place here
+        }
 
-            // Check E P P P [E] <- potentialPosition is the last E
-            if checkPattern(pattern: [.empty, playerState, playerState, playerState, .empty],
-                            startRow: potentialPosition.row - dr*4, startCol: potentialPosition.col - dc*4,
-                            direction: (dr, dc), on: boardToCheck) {
-                return potentialPosition // Placing here creates/blocks _PPP[E]
-            }
-            // Check [E] P P P E <- potentialPosition is the first E
+        for (dr, dc) in directions {
+            // Check pattern [E] P P P _  (potentialPosition is E)
             if checkPattern(pattern: [.empty, playerState, playerState, playerState, .empty],
                             startRow: potentialPosition.row, startCol: potentialPosition.col,
                             direction: (dr, dc), on: boardToCheck) {
-                return potentialPosition // Placing here creates/blocks [E]PPPE
+                return true // Placing here makes EPPPE
             }
-             // Check P E P P E <- potentialPosition is the middle E (less common but possible block)
-             if checkPattern(pattern: [playerState, .empty, playerState, playerState, .empty],
-                             startRow: potentialPosition.row - dr, startCol: potentialPosition.col - dc,
-                             direction: (dr, dc), on: boardToCheck) {
-                 return potentialPosition
-             }
-              // Check P P E P E <- potentialPosition is the middle E
-             if checkPattern(pattern: [playerState, playerState, .empty, playerState, .empty],
-                             startRow: potentialPosition.row - dr*2, startCol: potentialPosition.col - dc*2,
-                             direction: (dr, dc), on: boardToCheck) {
-                 return potentialPosition
-             }
-              // Check P P P E E <- potentialPosition is the middle E
-             if checkPattern(pattern: [playerState, playerState, playerState, .empty, .empty],
-                             startRow: potentialPosition.row - dr*3, startCol: potentialPosition.col - dc*3,
-                             direction: (dr, dc), on: boardToCheck) {
-                 return potentialPosition
-             }
+            // Check _ P P P [E] (potentialPosition is E)
+            if checkPattern(pattern: [.empty, playerState, playerState, playerState, .empty],
+                            startRow: potentialPosition.row - dr*4, startCol: potentialPosition.col - dc*4,
+                            direction: (dr, dc), on: boardToCheck) {
+                return true // Placing here makes _PPPE
+            }
         }
-        return nil // No direct Open Three creation/block found at this position
+        return false // No direct _PPP_ completion found at this position
     }
+
+    // REMOVE or comment out the old findOpenThreeMove function
+    // func findOpenThreeMove(...) { ... }
     
     // --- NEW: Helper for AI - Find moves that make two in a row ---
     // Checks if placing a piece at 'position' for 'player' creates a P P pattern
@@ -914,37 +900,48 @@ class ViewController: UIViewController {
         let emptyCells = findEmptyCells(); if emptyCells.isEmpty { print("AI Medium: No empty cells left."); return }
         let humanPlayer: Player = (aiPlayer == .black) ? .white : .black
 
-        // 1. Win?
-        for cell in emptyCells { if checkPotentialWin(player: aiPlayer, position: cell) { print("AI Medium: Found winning move at \(cell)"); placeAiPieceAndEndTurn(at: cell); return } }
-        // 2. Block Win?
-        for cell in emptyCells { if checkPotentialWin(player: humanPlayer, position: cell) { print("AI Medium: Found blocking move at \(cell)"); placeAiPieceAndEndTurn(at: cell); return } }
-        // 3. Block Opponent's Open Three?
-        var blockingOpenThreeMoves: [Position] = []; for cell in emptyCells { if findOpenThreeMove(for: humanPlayer, potentialPosition: cell, on: self.board) != nil { blockingOpenThreeMoves.append(cell) } }; if let blockMove = blockingOpenThreeMoves.randomElement() { print("AI Medium: Found blocking Open Three move at \(blockMove)"); placeAiPieceAndEndTurn(at: blockMove); return }
-        // 4. Create Own Open Three?
-        var creatingOpenThreeMoves: [Position] = []; for cell in emptyCells { var tempBoard = self.board; tempBoard[cell.row][cell.col] = (aiPlayer == .black) ? .black : .white; if findOpenThreeMove(for: aiPlayer, potentialPosition: cell, on: tempBoard) != nil { creatingOpenThreeMoves.append(cell) } }; if let createMove = creatingOpenThreeMoves.randomElement() { print("AI Medium: Found creating Open Three move at \(createMove)"); placeAiPieceAndEndTurn(at: createMove); return }
+        // --- AI Priorities (REVISED ORDER) ---
 
-        // --- NEW Priority 5: Make Two ---
-        var makeTwoMoves: [Position] = []
+        // 1. Win? (AI immediate win)
+        for cell in emptyCells { if checkPotentialWin(player: aiPlayer, position: cell) { print("AI Medium: Found winning move at \(cell)"); placeAiPieceAndEndTurn(at: cell); return } }
+
+        // 2. Block Win? (Human immediate win)
+        for cell in emptyCells { if checkPotentialWin(player: humanPlayer, position: cell) { print("AI Medium: Found blocking win move at \(cell)"); placeAiPieceAndEndTurn(at: cell); return } }
+
+        // --- NEW Priority 3: Create Own Open Three? ---
+        var creatingOpenThreeMoves: [Position] = [];
         for cell in emptyCells {
-            if findMakeTwoMove(for: aiPlayer, potentialPosition: cell, on: self.board) != nil {
-                makeTwoMoves.append(cell)
+             // Check if placing AI piece at 'cell' creates an _PPP_ pattern
+            if findSpecificOpenThreeMove(for: aiPlayer, potentialPosition: cell, on: self.board) {
+                creatingOpenThreeMoves.append(cell)
             }
         }
-        if let makeTwoMove = makeTwoMoves.randomElement() {
-            print("AI Medium: Found 'Make Two' move at \(makeTwoMove)")
-            placeAiPieceAndEndTurn(at: makeTwoMove); return
+        if let createMove = creatingOpenThreeMoves.randomElement() { // Pick a random one if multiple found
+            print("AI Medium: Found creating Open Three move at \(createMove)")
+            placeAiPieceAndEndTurn(at: createMove); return
         }
 
-        // 6. Fallback to Easy AI logic (Adjacent / Random)
-        print("AI Medium: No better move found. Falling back to Easy logic.")
-        // Note: Easy AI now also includes the 'Make Two' check we just added,
-        // making this fallback slightly smarter than before.
-        performEasyAiMove() // Call the enhanced Easy AI logic
+        // --- NEW Priority 4: Block Opponent's Open Three? ---
+        var blockingOpenThreeMoves: [Position] = [];
+        for cell in emptyCells {
+            // Check if the human has an Open Three where 'cell' is one of the required empty spots
+            if findSpecificOpenThreeMove(for: humanPlayer, potentialPosition: cell, on: self.board) {
+                 blockingOpenThreeMoves.append(cell)
+            }
+        }
+        if let blockMove = blockingOpenThreeMoves.randomElement() { // Pick a random block if multiple found
+             print("AI Medium: Found blocking Open Three move at \(blockMove)")
+             placeAiPieceAndEndTurn(at: blockMove); return
+        }
 
-        // Removed direct random calls here as Easy handles the final fallbacks
-        // let adjacentCells = findAdjacentEmptyCells(); if let targetCell = adjacentCells.randomElement() { ... }
-        // if let targetCell = emptyCells.randomElement() { ... }
-        // print("AI Medium: Could not find any valid move.") // Easy handles this message
+        // --- Keep Priority 5: Make Two ---
+        var makeTwoMoves: [Position] = []
+        for cell in emptyCells { if findMakeTwoMove(for: aiPlayer, potentialPosition: cell, on: self.board) != nil { makeTwoMoves.append(cell) } }
+        if let makeTwoMove = makeTwoMoves.randomElement() { print("AI Medium: Found 'Make Two' move at \(makeTwoMove)"); placeAiPieceAndEndTurn(at: makeTwoMove); return }
+
+        // 6. Fallback to Easy AI logic
+        print("AI Medium: No better move found. Falling back to Easy logic.")
+        performEasyAiMove()
     }
     
     func performHardAiMove() {
