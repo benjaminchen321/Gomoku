@@ -6,6 +6,11 @@ class ViewController: UIViewController {
     @IBOutlet weak var statusLabel: UILabel!
     @IBOutlet weak var boardView: UIView!
     @IBOutlet weak var resetButton: UIButton!
+    
+    // --- NEW: Properties for Adaptive Setup UI Constraints ---
+    private var setupPortraitConstraints: [NSLayoutConstraint] = []
+    private var setupLandscapeConstraints: [NSLayoutConstraint] = []
+    private var currentSetupConstraints: [NSLayoutConstraint] = [] // Track active set
 
     // --- Game Constants ---
     let boardSize = 15
@@ -74,31 +79,72 @@ class ViewController: UIViewController {
         styleStatusLabel()
         boardView.backgroundColor = .clear
         styleResetButton()
-        createMainMenuButton() // Create before constraints
+        createMainMenuButton()
+        createSetupUI() // Creates UI elements
 
-        // Create Setup UI Elements
-        createSetupUI()
-
-        // Initialize game state & add gesture (but don't draw board yet)
+        // Initialize game state & add gesture
         setupNewGameVariablesOnly()
         // addTapGestureRecognizer() // Add only when game starts
 
         // Show Setup UI Initially
         showSetupUI()
 
+        // Constraints will be set up and applied in viewWillLayoutSubviews
         print("viewDidLoad completed.")
+    }
+    
+    // --- NEW Helper to Activate/Deactivate Adaptive Constraints ---
+    func applyAdaptiveSetupConstraints() {
+        guard constraintsActivated else { return } // Ensure base constraints are set
+
+        // Determine orientation based on view aspect ratio
+        let isLandscape = view.bounds.width > view.bounds.height
+        let targetConstraints = isLandscape ? setupLandscapeConstraints : setupPortraitConstraints
+
+        // Check if the correct set is already active
+        if currentSetupConstraints == targetConstraints && !currentSetupConstraints.isEmpty {
+             // print("Correct setup constraints already active for \(isLandscape ? "Landscape" : "Portrait").")
+             return // Do nothing if correct set is active
+        }
+
+        print("Applying setup constraints for \(isLandscape ? "Landscape" : "Portrait").")
+
+        // Deactivate previously active setup constraints
+        if !currentSetupConstraints.isEmpty {
+            print("Deactivating \(currentSetupConstraints.count) old setup constraints.")
+            NSLayoutConstraint.deactivate(currentSetupConstraints)
+        }
+
+        // Activate the new target constraints
+        if !targetConstraints.isEmpty {
+            print("Activating \(targetConstraints.count) new setup constraints.")
+            NSLayoutConstraint.activate(targetConstraints)
+            currentSetupConstraints = targetConstraints // Update tracked active set
+        } else {
+            print("Warning: Target constraint set is empty for \(isLandscape ? "Landscape" : "Portrait").")
+            currentSetupConstraints = []
+        }
+
+        // Optional: Force layout update immediately after changing constraints
+        // Might be needed if changes aren't reflecting instantly
+        // self.view.layoutIfNeeded()
     }
 
     override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
-        // Setup constraints ONCE before the first layout pass
+
+        // --- Setup Constraints ONCE ---
         if !constraintsActivated {
             print("viewWillLayoutSubviews: Setting up ALL constraints for the first time.")
-            setupConstraints() // For Game Elements
-            setupSetupUIConstraints() // For Setup UI
-            setupMainMenuButtonConstraints() // For Main Menu Button
+            setupConstraints() // For Game Elements (These stay active)
+            setupSetupUIConstraints() // Creates portrait/landscape sets
+            setupMainMenuButtonConstraints() // Menu Button constraints
             constraintsActivated = true
+            // Don't activate setup constraints here yet
         }
+
+        // --- Apply Setup UI Constraints based on Orientation ---
+        applyAdaptiveSetupConstraints() // Call new helper function
     }
 
     override func viewDidLayoutSubviews() {
@@ -242,28 +288,34 @@ class ViewController: UIViewController {
         }
     }
 
+    // --- MODIFIED: Creates constraint sets but DOES NOT activate them ---
     func setupSetupUIConstraints() {
-        print("Setting up Setup UI constraints")
+        print("Setting up Setup UI constraints (Creating Sets)")
+        // Clear old arrays before repopulating
+        setupPortraitConstraints.removeAll()
+        setupLandscapeConstraints.removeAll()
+
+        guard setupUIElements.count == 6 else { // Ensure all elements are created
+            print("Error: Setup UI elements not fully created before constraint setup.")
+            return
+        }
+
         let safeArea = view.safeAreaLayoutGuide
         let buttonSpacing: CGFloat = 15
         let titleSpacing: CGFloat = 40
 
-        // --- Game Title Constraints (ULTRA Simplified) ---
-        NSLayoutConstraint.activate([
-            gameTitleLabel.topAnchor.constraint(equalTo: safeArea.topAnchor, constant: 80), // Distance from top
-            gameTitleLabel.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor)      // Centered horizontally
-            // REMOVED leading/trailing >= constraints
-        ])
-        print("Activated ultra-simplified constraints for gameTitleLabel.")
+        // --- Portrait Constraints Definition ---
+        setupPortraitConstraints = [
+            // Game Title
+            gameTitleLabel.topAnchor.constraint(equalTo: safeArea.topAnchor, constant: 80),
+            gameTitleLabel.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
 
-        // --- Constraints for other elements (Relative to element above) ---
-         NSLayoutConstraint.activate([
-            setupTitleLabel.topAnchor.constraint(equalTo: gameTitleLabel.bottomAnchor, constant: titleSpacing * 0.5), // Space below title
+            // "Choose Game Mode" Label
+            setupTitleLabel.topAnchor.constraint(equalTo: gameTitleLabel.bottomAnchor, constant: titleSpacing * 0.75),
             setupTitleLabel.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
-            setupTitleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: safeArea.leadingAnchor, constant: 20), // Keep side margins
-            setupTitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: safeArea.trailingAnchor, constant: -20),
 
-            startEasyAIButton.topAnchor.constraint(equalTo: setupTitleLabel.bottomAnchor, constant: titleSpacing), // Below "Choose..."
+            // Buttons Stacked Vertically
+            startEasyAIButton.topAnchor.constraint(equalTo: setupTitleLabel.bottomAnchor, constant: titleSpacing),
             startEasyAIButton.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
 
             startMediumAIButton.topAnchor.constraint(equalTo: startEasyAIButton.bottomAnchor, constant: buttonSpacing),
@@ -277,7 +329,37 @@ class ViewController: UIViewController {
             startHvsHButton.topAnchor.constraint(equalTo: startHardAIButton.bottomAnchor, constant: buttonSpacing),
             startHvsHButton.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
             startHvsHButton.widthAnchor.constraint(equalTo: startEasyAIButton.widthAnchor)
-        ])
+        ]
+
+        // --- Landscape Constraints Definition (Example: 2x2 Grid for AI Buttons) ---
+        setupLandscapeConstraints = [
+            // Game Title (Maybe slightly higher in landscape)
+            gameTitleLabel.topAnchor.constraint(equalTo: safeArea.topAnchor, constant: 30),
+            gameTitleLabel.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
+
+            // "Choose Game Mode" Label (Below Title)
+            setupTitleLabel.topAnchor.constraint(equalTo: gameTitleLabel.bottomAnchor, constant: 20),
+            setupTitleLabel.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
+
+            // Buttons in a 2x2 arrangement below "Choose..." label
+            // Row 1: Easy | Medium
+            startEasyAIButton.topAnchor.constraint(equalTo: setupTitleLabel.bottomAnchor, constant: 30),
+            startEasyAIButton.trailingAnchor.constraint(equalTo: safeArea.centerXAnchor, constant: -buttonSpacing / 2), // Left of center
+
+            startMediumAIButton.topAnchor.constraint(equalTo: startEasyAIButton.topAnchor), // Align top
+            startMediumAIButton.leadingAnchor.constraint(equalTo: safeArea.centerXAnchor, constant: buttonSpacing / 2), // Right of center
+            startMediumAIButton.widthAnchor.constraint(equalTo: startEasyAIButton.widthAnchor), // Match width
+
+            // Row 2: Hard | HvsH
+            startHardAIButton.topAnchor.constraint(equalTo: startEasyAIButton.bottomAnchor, constant: buttonSpacing),
+            startHardAIButton.trailingAnchor.constraint(equalTo: safeArea.centerXAnchor, constant: -buttonSpacing / 2), // Left of center
+            startHardAIButton.widthAnchor.constraint(equalTo: startEasyAIButton.widthAnchor),
+
+            startHvsHButton.topAnchor.constraint(equalTo: startHardAIButton.topAnchor), // Align top
+            startHvsHButton.leadingAnchor.constraint(equalTo: safeArea.centerXAnchor, constant: buttonSpacing / 2), // Right of center
+            startHvsHButton.widthAnchor.constraint(equalTo: startEasyAIButton.widthAnchor)
+        ]
+        print("Setup UI constraint sets created.")
     }
 
     func createMainMenuButton() {
