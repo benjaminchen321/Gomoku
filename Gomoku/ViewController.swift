@@ -32,6 +32,20 @@ class ViewController: UIViewController {
     private var selectedDifficulty: AIDifficulty = .easy
     var isAiTurn: Bool { currentGameMode == .humanVsAI && currentPlayer == aiPlayer }
 
+    // --- NEW: Minimax AI Constants ---
+    private let MAX_DEPTH = 2 // Initial search depth (Adjust for performance/strength)
+    private let WIN_SCORE = 1000000 // Score for winning state
+    private let LOSE_SCORE = -1000000 // Score for losing state
+    private let DRAW_SCORE = 0
+    // Score values for patterns (adjust weights as needed)
+    private let SCORE_OPEN_FOUR = 50000
+    private let SCORE_CLOSED_FOUR = 4500
+    private let SCORE_OPEN_THREE = 4000
+    private let SCORE_CLOSED_THREE = 500
+    private let SCORE_OPEN_TWO = 100
+    private let SCORE_CLOSED_TWO = 10
+    // --- End Minimax Constants ---
+    
     // --- Layer References ---
     var backgroundGradientLayer: CAGradientLayer?
     var woodBackgroundLayers: [CALayer] = []
@@ -254,7 +268,7 @@ class ViewController: UIViewController {
          let safeArea = view.safeAreaLayoutGuide; let verticalSpacingMultiplier: CGFloat = 0.04; let buttonHeightMultiplier: CGFloat = 0.09; let buttonWidthMultiplier: CGFloat = 0.65
          setupPortraitConstraints = [ gameTitleLabel.topAnchor.constraint(equalTo: safeArea.topAnchor, constant: view.bounds.height * 0.12), gameTitleLabel.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor), gameTitleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: safeArea.leadingAnchor, constant: 20), gameTitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: safeArea.trailingAnchor, constant: -20), setupTitleLabel.topAnchor.constraint(equalTo: gameTitleLabel.bottomAnchor, constant: view.bounds.height * 0.02), setupTitleLabel.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor), setupTitleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: safeArea.leadingAnchor, constant: 20), setupTitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: safeArea.trailingAnchor, constant: -20), startEasyAIButton.topAnchor.constraint(equalTo: setupTitleLabel.bottomAnchor, constant: view.bounds.height * 0.05), startEasyAIButton.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor), startEasyAIButton.widthAnchor.constraint(equalTo: safeArea.widthAnchor, multiplier: buttonWidthMultiplier), startEasyAIButton.heightAnchor.constraint(equalTo: safeArea.heightAnchor, multiplier: buttonHeightMultiplier), startMediumAIButton.topAnchor.constraint(equalTo: startEasyAIButton.bottomAnchor, constant: view.bounds.height * verticalSpacingMultiplier), startMediumAIButton.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor), startMediumAIButton.widthAnchor.constraint(equalTo: startEasyAIButton.widthAnchor), startMediumAIButton.heightAnchor.constraint(equalTo: startEasyAIButton.heightAnchor), startHardAIButton.topAnchor.constraint(equalTo: startMediumAIButton.bottomAnchor, constant: view.bounds.height * verticalSpacingMultiplier), startHardAIButton.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor), startHardAIButton.widthAnchor.constraint(equalTo: startEasyAIButton.widthAnchor), startHardAIButton.heightAnchor.constraint(equalTo: startEasyAIButton.heightAnchor), startHvsHButton.topAnchor.constraint(equalTo: startHardAIButton.bottomAnchor, constant: view.bounds.height * verticalSpacingMultiplier), startHvsHButton.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor), startHvsHButton.widthAnchor.constraint(equalTo: startEasyAIButton.widthAnchor), startHvsHButton.heightAnchor.constraint(equalTo: startEasyAIButton.heightAnchor), ]
          let landscapeButtonWidthMultiplier: CGFloat = 0.35; let landscapeVerticalSpacing: CGFloat = view.bounds.height * 0.03
-         setupLandscapeConstraints = [ gameTitleLabel.topAnchor.constraint(equalTo: safeArea.topAnchor, constant: view.bounds.height * 0.05), gameTitleLabel.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor), setupTitleLabel.topAnchor.constraint(equalTo: gameTitleLabel.bottomAnchor, constant: view.bounds.height * 0.02), setupTitleLabel.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor), startEasyAIButton.topAnchor.constraint(equalTo: setupTitleLabel.bottomAnchor, constant: view.bounds.height * 0.05), startEasyAIButton.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor), startEasyAIButton.widthAnchor.constraint(equalTo: safeArea.widthAnchor, multiplier: landscapeButtonWidthMultiplier), startEasyAIButton.heightAnchor.constraint(equalTo: safeArea.heightAnchor, multiplier: buttonHeightMultiplier * 1.2), startMediumAIButton.topAnchor.constraint(equalTo: startEasyAIButton.bottomAnchor, constant: landscapeVerticalSpacing), startMediumAIButton.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor), startMediumAIButton.widthAnchor.constraint(equalTo: startEasyAIButton.widthAnchor), startMediumAIButton.heightAnchor.constraint(equalTo: startEasyAIButton.heightAnchor), startHardAIButton.topAnchor.constraint(equalTo: startMediumAIButton.bottomAnchor, constant: landscapeVerticalSpacing), startHardAIButton.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor), startHardAIButton.widthAnchor.constraint(equalTo: startEasyAIButton.widthAnchor), startHardAIButton.heightAnchor.constraint(equalTo: startEasyAIButton.heightAnchor), startHvsHButton.topAnchor.constraint(equalTo: startHardAIButton.bottomAnchor, constant: landscapeVerticalSpacing), startHvsHButton.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor), startHvsHButton.widthAnchor.constraint(equalTo: startEasyAIButton.widthAnchor), startHvsHButton.heightAnchor.constraint(equalTo: startEasyAIButton.heightAnchor), ]
+         setupLandscapeConstraints = [ gameTitleLabel.topAnchor.constraint(equalTo: safeArea.topAnchor, constant: 5), gameTitleLabel.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor), setupTitleLabel.topAnchor.constraint(equalTo: gameTitleLabel.bottomAnchor, constant: view.bounds.height * 0.02), setupTitleLabel.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor), startEasyAIButton.topAnchor.constraint(equalTo: setupTitleLabel.bottomAnchor, constant: view.bounds.height * 0.05), startEasyAIButton.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor), startEasyAIButton.widthAnchor.constraint(equalTo: safeArea.widthAnchor, multiplier: landscapeButtonWidthMultiplier), startEasyAIButton.heightAnchor.constraint(equalTo: safeArea.heightAnchor, multiplier: buttonHeightMultiplier * 1.2), startMediumAIButton.topAnchor.constraint(equalTo: startEasyAIButton.bottomAnchor, constant: landscapeVerticalSpacing), startMediumAIButton.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor), startMediumAIButton.widthAnchor.constraint(equalTo: startEasyAIButton.widthAnchor), startMediumAIButton.heightAnchor.constraint(equalTo: startEasyAIButton.heightAnchor), startHardAIButton.topAnchor.constraint(equalTo: startMediumAIButton.bottomAnchor, constant: landscapeVerticalSpacing), startHardAIButton.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor), startHardAIButton.widthAnchor.constraint(equalTo: startEasyAIButton.widthAnchor), startHardAIButton.heightAnchor.constraint(equalTo: startEasyAIButton.heightAnchor), startHvsHButton.topAnchor.constraint(equalTo: startHardAIButton.bottomAnchor, constant: landscapeVerticalSpacing), startHvsHButton.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor), startHvsHButton.widthAnchor.constraint(equalTo: startEasyAIButton.widthAnchor), startHvsHButton.heightAnchor.constraint(equalTo: startEasyAIButton.heightAnchor), ]
          print("Setup UI constraint sets V4 created.")
      }
     func applyAdaptiveSetupConstraints() { /* ... no changes needed here ... */
@@ -639,19 +653,340 @@ class ViewController: UIViewController {
     // --- AI Logic (performAiTurn, performSimpleAiMove, performStandardAiMove, performHardAiMove, helpers) ---
     // ... (Keep all existing AI logic from the previous step unchanged) ...
      func performAiTurn() { guard !gameOver else { view.isUserInteractionEnabled = true; return }; print("AI Turn (\(selectedDifficulty)): Performing move..."); let startTime = CFAbsoluteTimeGetCurrent(); switch selectedDifficulty { case .easy: performSimpleAiMove(); case .medium: performStandardAiMove(); case .hard: performHardAiMove() }; let timeElapsed = CFAbsoluteTimeGetCurrent() - startTime; print("AI (\(selectedDifficulty)) took \(String(format: "%.3f", timeElapsed)) seconds."); DispatchQueue.main.async { if !self.gameOver && !self.isAiTurn { self.view.isUserInteractionEnabled = true; self.statusLabel.text = "\(self.currentPlayer == .black ? "Black" : "White")'s Turn"; print("AI Turn (\(self.selectedDifficulty)): Completed. Re-enabled user interaction.") } else if self.gameOver { print("AI Turn (\(self.selectedDifficulty)): Game Over.") } else { print("AI Turn (\(self.selectedDifficulty)): Completed, still AI turn? (AI vs AI?)") } } }
-     func performSimpleAiMove() { let emptyCells = findEmptyCells(); if emptyCells.isEmpty { print("AI Easy: No empty cells left."); return }; let humanPlayer: Player = opponent(of: aiPlayer); for cell in emptyCells { if checkPotentialWin(player: aiPlayer, position: cell) { print("AI Easy: Found winning move at \(cell)"); placeAiPieceAndEndTurn(at: cell); return } }; for cell in emptyCells { if checkPotentialWin(player: humanPlayer, position: cell) { print("AI Easy: Found blocking move at \(cell)"); placeAiPieceAndEndTurn(at: cell); return } }; let adjacentCells = findAdjacentEmptyCells(); if let targetCell = adjacentCells.randomElement() { print("AI Easy: Playing random adjacent move at \(targetCell)"); placeAiPieceAndEndTurn(at: targetCell); return }; if let targetCell = emptyCells.randomElement() { print("AI Easy: Playing completely random move at \(targetCell)"); placeAiPieceAndEndTurn(at: targetCell); return }; print("AI Easy: Could not find any valid move.") }
-     func performStandardAiMove() { let emptyCells = findEmptyCells(); if emptyCells.isEmpty { print("AI Medium: No empty cells left."); return }; let humanPlayer: Player = opponent(of: aiPlayer); if let winMove = findMovesCreatingThreat(player: aiPlayer, threat: .five, emptyCells: emptyCells).first { print("AI Medium: Found winning move at \(winMove)"); placeAiPieceAndEndTurn(at: winMove); return }; if let blockMove = findMovesCreatingThreat(player: humanPlayer, threat: .five, emptyCells: emptyCells).first { print("AI Medium: Found blocking win move at \(blockMove)"); placeAiPieceAndEndTurn(at: blockMove); return }; if let createMove = findMovesCreatingThreat(player: aiPlayer, threat: .openThree, emptyCells: emptyCells).first { print("AI Medium: Found creating Open Three move at \(createMove)"); placeAiPieceAndEndTurn(at: createMove); return }; if let blockMove = findMovesCreatingThreat(player: humanPlayer, threat: .openThree, emptyCells: emptyCells).first { print("AI Medium: Found blocking Open Three move at \(blockMove)"); placeAiPieceAndEndTurn(at: blockMove); return }; if let createMove = findMovesCreatingThreat(player: aiPlayer, threat: .closedThree, emptyCells: emptyCells).first { print("AI Medium: Found creating Closed Three move at \(createMove)"); placeAiPieceAndEndTurn(at: createMove); return }; if let blockMove = findMovesCreatingThreat(player: humanPlayer, threat: .closedThree, emptyCells: emptyCells).first { print("AI Medium: Found blocking Closed Three move at \(blockMove)"); placeAiPieceAndEndTurn(at: blockMove); return }; print("AI Medium: No better move found. Falling back to Simple logic."); performSimpleAiMove() }
-     func performHardAiMove() { let emptyCells = findEmptyCells(); guard !emptyCells.isEmpty else { print("AI Hard: No empty cells left."); return }; let humanPlayer: Player = opponent(of: aiPlayer); let totalPieces = board.flatMap({ $0 }).filter({ $0 != .empty }).count; if totalPieces < 2 { let center = boardSize / 2; let centerPos = Position(row: center, col: center); var move: Position?; if checkBounds(row: center, col: center) && board[center][center] == .empty { move = centerPos; print("AI Hard: First move, playing center.") } else { let preferredAdjacent = emptyCells.filter { p in max(abs(p.row - center), abs(p.col - center)) <= 1 && (abs(p.row - center) == 1 || abs(p.col - center) == 1) }; move = preferredAdjacent.randomElement() ?? findAdjacentEmptyCells().randomElement() ?? emptyCells.randomElement(); print("AI Hard: First move, center taken, playing near center.") }; if let firstMove = move { placeAiPieceAndEndTurn(at: firstMove); return } }; print("AI Hard: Evaluating moves..."); if let winMove = findMovesCreatingThreat(player: aiPlayer, threat: .five, emptyCells: emptyCells).first { print("AI Hard (P1): Found winning move at \(winMove)"); placeAiPieceAndEndTurn(at: winMove); return }; let blockWinMoves = findMovesCreatingThreat(player: humanPlayer, threat: .five, emptyCells: emptyCells); if let blockMove = blockWinMoves.first { print("AI Hard (P2): Found blocking win move at \(blockMove)"); placeAiPieceAndEndTurn(at: blockMove); return }; if blockWinMoves.count > 1, let multiBlockMove = blockWinMoves.randomElement() { print("AI Hard (P2b): Found MULTIPLE blocking win moves! Blocking one at \(multiBlockMove)"); placeAiPieceAndEndTurn(at: multiBlockMove); return }; if let openFourMove = findMovesCreatingThreat(player: aiPlayer, threat: .openFour, emptyCells: emptyCells).first { print("AI Hard (P3): Found creating Open Four move at \(openFourMove)"); placeAiPieceAndEndTurn(at: openFourMove); return }; let humanOpenFourBlocks = findMovesCreatingThreat(player: humanPlayer, threat: .openFour, emptyCells: emptyCells); if let blockHumanOpenFour = humanOpenFourBlocks.first { print("AI Hard (P4): Blocking opponent's Open Four at \(blockHumanOpenFour)"); placeAiPieceAndEndTurn(at: blockHumanOpenFour); return }; if humanOpenFourBlocks.count > 1, let multiBlockOpenFour = humanOpenFourBlocks.randomElement() { print("AI Hard (P4b): Found MULTIPLE opponent Open Fours! Blocking one at \(multiBlockOpenFour)"); placeAiPieceAndEndTurn(at: multiBlockOpenFour); return }; let aiClosedFourMoves = findMovesCreatingThreat(player: aiPlayer, threat: .closedFour, emptyCells: emptyCells); let aiOpenThreeMoves = findMovesCreatingThreat(player: aiPlayer, threat: .openThree, emptyCells: emptyCells); let humanClosedFourBlocks = findMovesCreatingThreat(player: humanPlayer, threat: .closedFour, emptyCells: emptyCells); let humanOpenThreeBlocks = findMovesCreatingThreat(player: humanPlayer, threat: .openThree, emptyCells: emptyCells); var candidateMoves: [Position: Int] = [:]; for move in aiClosedFourMoves { candidateMoves[move] = (candidateMoves[move] ?? 0) + 450 }; for move in aiOpenThreeMoves { candidateMoves[move] = (candidateMoves[move] ?? 0) + 400 }; for move in humanClosedFourBlocks { candidateMoves[move] = (candidateMoves[move] ?? 0) + 100 }; for move in humanOpenThreeBlocks { candidateMoves[move] = (candidateMoves[move] ?? 0) + 350 }; let sortedCandidates = candidateMoves.keys.sorted { (candidateMoves[$0] ?? 0) > (candidateMoves[$1] ?? 0) }; if let bestThreatMove = sortedCandidates.first { let score = candidateMoves[bestThreatMove] ?? 0; print("AI Hard (P5): Playing threat-based move (Score \(score)) at \(bestThreatMove)"); placeAiPieceAndEndTurn(at: bestThreatMove); return }; let adjacentCells = findAdjacentEmptyCells(); var preferredMoves: [Position] = []; let center = boardSize / 2; let maxDist = boardSize / 3; for cell in adjacentCells { let distFromCenter = max(abs(cell.row - center), abs(cell.col - center)); if distFromCenter <= maxDist { preferredMoves.append(cell) } }; if preferredMoves.isEmpty && !adjacentCells.isEmpty { preferredMoves = adjacentCells }; if preferredMoves.isEmpty { for cell in emptyCells { if !adjacentCells.contains(cell) { let distFromCenter = max(abs(cell.row - center), abs(cell.col - center)); if distFromCenter <= maxDist { preferredMoves.append(cell) } } } }; if let preferredMove = preferredMoves.randomElement() { print("AI Hard (P6): Playing preferred adjacent/center move at \(preferredMove)"); placeAiPieceAndEndTurn(at: preferredMove); return }; if let randomMove = emptyCells.randomElement() { print("AI Hard (P7): No better move found. Playing random move at \(randomMove)"); placeAiPieceAndEndTurn(at: randomMove); return }; print("AI Hard: Could not find ANY valid move (Error state)."); view.isUserInteractionEnabled = true }
+     func performSimpleAiMove() { let emptyCells = findEmptyCells(on: self.board); if emptyCells.isEmpty { print("AI Easy: No empty cells left."); return }; let humanPlayer: Player = opponent(of: aiPlayer); for cell in emptyCells { if checkPotentialWin(player: aiPlayer, position: cell) { print("AI Easy: Found winning move at \(cell)"); placeAiPieceAndEndTurn(at: cell); return } }; for cell in emptyCells { if checkPotentialWin(player: humanPlayer, position: cell) { print("AI Easy: Found blocking move at \(cell)"); placeAiPieceAndEndTurn(at: cell); return } }; let adjacentCells = findAdjacentEmptyCells(on: self.board); if let targetCell = adjacentCells.randomElement() { print("AI Easy: Playing random adjacent move at \(targetCell)"); placeAiPieceAndEndTurn(at: targetCell); return }; if let targetCell = emptyCells.randomElement() { print("AI Easy: Playing completely random move at \(targetCell)"); placeAiPieceAndEndTurn(at: targetCell); return }; print("AI Easy: Could not find any valid move.") }
+     func performStandardAiMove() { let emptyCells = findEmptyCells(on: self.board); if emptyCells.isEmpty { print("AI Medium: No empty cells left."); return }; let humanPlayer: Player = opponent(of: aiPlayer); if let winMove = findMovesCreatingThreat(player: aiPlayer, threat: .five, emptyCells: emptyCells).first { print("AI Medium: Found winning move at \(winMove)"); placeAiPieceAndEndTurn(at: winMove); return }; if let blockMove = findMovesCreatingThreat(player: humanPlayer, threat: .five, emptyCells: emptyCells).first { print("AI Medium: Found blocking win move at \(blockMove)"); placeAiPieceAndEndTurn(at: blockMove); return }; if let createMove = findMovesCreatingThreat(player: aiPlayer, threat: .openThree, emptyCells: emptyCells).first { print("AI Medium: Found creating Open Three move at \(createMove)"); placeAiPieceAndEndTurn(at: createMove); return }; if let blockMove = findMovesCreatingThreat(player: humanPlayer, threat: .openThree, emptyCells: emptyCells).first { print("AI Medium: Found blocking Open Three move at \(blockMove)"); placeAiPieceAndEndTurn(at: blockMove); return }; if let createMove = findMovesCreatingThreat(player: aiPlayer, threat: .closedThree, emptyCells: emptyCells).first { print("AI Medium: Found creating Closed Three move at \(createMove)"); placeAiPieceAndEndTurn(at: createMove); return }; if let blockMove = findMovesCreatingThreat(player: humanPlayer, threat: .closedThree, emptyCells: emptyCells).first { print("AI Medium: Found blocking Closed Three move at \(blockMove)"); placeAiPieceAndEndTurn(at: blockMove); return }; print("AI Medium: No better move found. Falling back to Simple logic."); performSimpleAiMove() }
+    // --- REVISED HARD AI LOGIC (Uses Minimax) ---
+    func performHardAiMove() {
+        let emptyCells = findEmptyCells(on: self.board)
+        guard !emptyCells.isEmpty else { print("AI Hard (Minimax): No empty cells left."); return }
+
+        let humanPlayer = opponent(of: aiPlayer)
+
+        // --- Immediate Win/Loss Check (Optimization) ---
+        // Check if AI can win immediately
+        for cell in emptyCells {
+            if checkPotentialWin(player: aiPlayer, position: cell) {
+                print("AI Hard (Minimax): Found immediate winning move at \(cell)")
+                placeAiPieceAndEndTurn(at: cell); return
+            }
+        }
+        // Check if Human can win immediately (must block)
+        var blockingMoves: [Position] = []
+        for cell in emptyCells {
+            if checkPotentialWin(player: humanPlayer, position: cell) {
+                blockingMoves.append(cell)
+            }
+        }
+        if let blockMove = blockingMoves.first { // Usually only one immediate threat
+            print("AI Hard (Minimax): Found immediate blocking move at \(blockMove)")
+            placeAiPieceAndEndTurn(at: blockMove); return
+        }
+        // --- End Immediate Checks ---
+
+
+        // --- Handle first move(s) for better opening ---
+        let totalPieces = board.flatMap({ $0 }).filter({ $0 != .empty }).count
+        if totalPieces < 2 {
+            let center = boardSize / 2
+            let move = Position(row: center, col: center)
+            if checkBounds(row: center, col: center) && board[center][center] == .empty {
+                print("AI Hard (Minimax): First move, playing center.")
+                placeAiPieceAndEndTurn(at: move)
+                return
+            } else {
+                 // If center taken, play adjacent (simple fallback for now)
+                 if let adjacentMove = findAdjacentEmptyCells(on: self.board).randomElement() {
+                     print("AI Hard (Minimax): First move, center taken, playing adjacent.")
+                     placeAiPieceAndEndTurn(at: adjacentMove)
+                     return
+                 }
+            }
+        }
+
+        print("AI Hard (Minimax): Evaluating moves with depth \(MAX_DEPTH)...")
+
+        // --- Find Best Move using Minimax ---
+        if let bestMove = findBestMove(currentBoard: board, depth: MAX_DEPTH) {
+            print("AI Hard (Minimax): Chose move \(bestMove)")
+            placeAiPieceAndEndTurn(at: bestMove)
+        } else {
+            // Fallback if minimax fails (shouldn't happen if empty cells exist)
+            print("AI Hard (Minimax): Minimax failed to find a move! Falling back to Standard AI.")
+            performStandardAiMove()
+        }
+    }
+    
+    // --- NEW: Minimax Initiator ---
+    func findBestMove(currentBoard: [[CellState]], depth: Int) -> Position? {
+        var bestScore = Int.min
+        var bestMove: Position? = nil
+        var alpha = Int.min // Renamed to avoid conflict
+        var beta = Int.max  // Renamed to avoid conflict
+
+        // --- MODIFIED Move Generation: Prioritize adjacent cells ---
+        let adjacentMoves = findAdjacentEmptyCells(on: currentBoard)
+        let candidateMoves: [Position]
+
+        if !adjacentMoves.isEmpty {
+            candidateMoves = adjacentMoves
+            print("AI considering \(candidateMoves.count) adjacent moves initially.")
+        } else {
+            // Fallback if NO adjacent moves exist (very rare early game)
+            candidateMoves = findEmptyCells(on: currentBoard)
+            print("AI Warning: No adjacent moves found, considering all \(candidateMoves.count) empty cells.")
+        }
+        // --- End Move Generation ---
+
+        guard !candidateMoves.isEmpty else { return nil }
+
+        for move in candidateMoves {
+            var tempBoard = currentBoard
+            tempBoard[move.row][move.col] = state(for: aiPlayer)
+
+            let score = minimax(board: tempBoard, depth: depth - 1, alpha: alpha, beta: beta, maximizingPlayer: false, currentPlayerToEvaluate: opponent(of: aiPlayer))
+
+            print("Move \(move) evaluated with score: \(score)")
+
+            if score > bestScore {
+                bestScore = score
+                bestMove = move
+                alpha = max(alpha, bestScore) // Update alpha for the maximizing level
+            }
+            
+            // Early exit if a winning move is found (alpha reaches WIN_SCORE)
+            if alpha >= WIN_SCORE {
+                 print("Found winning move sequence early during alpha update.")
+                 return bestMove // Return the winning move
+            }
+            // No beta cutoff here at the top level
+
+        } // End loop through candidate moves
+
+        if bestMove == nil && !candidateMoves.isEmpty {
+            print("Warning: Minimax completed but no best move found? Defaulting to first candidate.")
+            bestMove = candidateMoves.first // Failsafe
+        }
+
+        print("Best move found: \(bestMove ?? Position(row: -1, col:-1)) with score: \(bestScore)")
+        return bestMove
+    }
+    
+    // --- NEW: Minimax with Alpha-Beta Pruning ---
+    func minimax(board currentBoard: [[CellState]], depth: Int, alpha currentAlpha: Int, beta currentBeta: Int, maximizingPlayer: Bool, currentPlayerToEvaluate: Player) -> Int {
+
+         var alpha = currentAlpha
+         var beta = currentBeta
+
+         // --- Base Cases ---
+         let winner = checkForWinner(on: currentBoard)
+         if winner == state(for: aiPlayer) { return WIN_SCORE }
+         if winner == state(for: opponent(of: aiPlayer)) { return LOSE_SCORE }
+         let emptyCells = findEmptyCells(on: currentBoard) // Still need all for draw check
+         if emptyCells.isEmpty { return DRAW_SCORE }
+         if depth == 0 { return evaluateBoard(board: currentBoard, playerMaximizing: aiPlayer) }
+         // --- End Base Cases ---
+
+         // --- MODIFIED Move Generation (Inside Minimax) ---
+         let adjacentMoves = findAdjacentEmptyCells(on: currentBoard)
+         let candidateMoves: [Position]
+
+         if !adjacentMoves.isEmpty {
+             candidateMoves = adjacentMoves
+             // print("Depth \(depth): Considering \(candidateMoves.count) adjacent moves.") // DEBUG: Can be very verbose
+         } else {
+             // Fallback if no adjacent moves (e.g., opponent surrounded everything)
+             candidateMoves = emptyCells // Use all empty if no adjacent
+             // print("Depth \(depth): Warning: No adjacent moves found, considering all \(candidateMoves.count) empty.") // DEBUG
+         }
+         // --- End Move Generation ---
+
+
+         if maximizingPlayer { // AI's turn (Maximize score)
+             var maxEval = Int.min
+             for move in candidateMoves {
+                 var tempBoard = currentBoard
+                 tempBoard[move.row][move.col] = state(for: currentPlayerToEvaluate)
+
+                 let eval = minimax(board: tempBoard, depth: depth - 1, alpha: alpha, beta: beta, maximizingPlayer: false, currentPlayerToEvaluate: opponent(of: currentPlayerToEvaluate))
+
+                 maxEval = max(maxEval, eval)
+                 alpha = max(alpha, eval)
+                 if beta <= alpha {
+                     // print("Depth \(depth) (Max): Beta cutoff! (\(beta) <= \(alpha))") // DEBUG
+                     break // Beta cut-off
+                 }
+             }
+             return maxEval
+         } else { // Opponent's turn (Minimize score)
+             var minEval = Int.max
+             for move in candidateMoves {
+                 var tempBoard = currentBoard
+                 tempBoard[move.row][move.col] = state(for: currentPlayerToEvaluate)
+
+                 let eval = minimax(board: tempBoard, depth: depth - 1, alpha: alpha, beta: beta, maximizingPlayer: true, currentPlayerToEvaluate: opponent(of: currentPlayerToEvaluate))
+
+                 minEval = min(minEval, eval)
+                 beta = min(beta, eval)
+                 if beta <= alpha {
+                     // print("Depth \(depth) (Min): Alpha cutoff! (\(beta) <= \(alpha))") // DEBUG
+                     break // Alpha cut-off
+                 }
+             }
+             return minEval
+         }
+     }
+    
+    // --- NEW: Board Evaluation Heuristic ---
+    func evaluateBoard(board: [[CellState]], playerMaximizing: Player) -> Int {
+        // Check for terminal state first (should be caught by minimax base case, but safe)
+        if checkForWinner(on: board) == state(for: playerMaximizing) { return WIN_SCORE }
+        if checkForWinner(on: board) == state(for: opponent(of: playerMaximizing)) { return LOSE_SCORE }
+        if findEmptyCells(on: board).isEmpty { return DRAW_SCORE }
+
+        var totalScore = 0
+        let lines = getAllLines(on: board) // Get all rows, cols, diagonals
+
+        for line in lines {
+            totalScore += evaluateLine(line: line, for: playerMaximizing)
+            totalScore -= evaluateLine(line: line, for: opponent(of: playerMaximizing)) // Subtract opponent's score
+        }
+
+        return totalScore
+    }
+
+    // --- NEW: Helper to evaluate a single line ---
+    func evaluateLine(line: [CellState], for player: Player) -> Int {
+        let playerState = state(for: player)
+        let opponentState = state(for: opponent(of: player))
+        var score = 0
+        let n = line.count
+
+        // Iterate through windows of 5 and 6
+        for i in 0...(n - 5) {
+             let window5 = Array(line[i..<(i + 5)])
+             var pCount = 0
+             var eCount = 0
+             for cell in window5 {
+                  if cell == playerState { pCount += 1 }
+                  else if cell == .empty { eCount += 1 }
+             }
+
+             // Check context for open/closed states
+            let stateBefore: CellState? = (i > 0) ? line[i-1] : opponentState // Treat edge as opponent
+            let stateAfter: CellState? = (i + 5 < n) ? line[i+5] : opponentState // Treat edge as opponent
+            let isOpenBefore = stateBefore == .empty
+            let isOpenAfter = stateAfter == .empty
+
+            // --- Score based on patterns within window 5 ---
+            if pCount == 5 { score += WIN_SCORE / 10 } // Strongly weight near-wins found mid-eval
+            else if pCount == 4 && eCount == 1 {
+                 // Potential closed four or part of open four
+                 if isOpenBefore || isOpenAfter { score += SCORE_CLOSED_FOUR } // If at least one side is open, it's a closed four threat
+            } else if pCount == 3 && eCount == 2 {
+                 // Potential open or closed three
+                 if isOpenBefore && isOpenAfter { score += SCORE_OPEN_THREE } // Open three
+                 else if isOpenBefore || isOpenAfter { score += SCORE_CLOSED_THREE } // Closed three
+            } else if pCount == 2 && eCount == 3 {
+                // Potential open or closed two
+                 if isOpenBefore && isOpenAfter { score += SCORE_OPEN_TWO }
+                 else if isOpenBefore || isOpenAfter { score += SCORE_CLOSED_TWO }
+            }
+
+             // --- Check specifically for Open Four (window 6) ---
+             if i <= (n - 6) {
+                  let window6 = Array(line[i..<(i + 6)])
+                  if window6[0] == .empty &&
+                     window6[1] == playerState &&
+                     window6[2] == playerState &&
+                     window6[3] == playerState &&
+                     window6[4] == playerState &&
+                     window6[5] == .empty {
+                       score += SCORE_OPEN_FOUR // Add score for open four
+                  }
+             }
+        }
+        return score
+    }
+
+    // --- NEW: Helper to get all relevant lines ---
+    func getAllLines(on boardToCheck: [[CellState]]) -> [[CellState]] {
+        var lines: [[CellState]] = []
+        let n = boardSize
+        // Rows
+        for r in 0..<n { lines.append(getRow(r, on: boardToCheck)) }
+        // Columns
+        for c in 0..<n { lines.append(getColumn(c, on: boardToCheck)) }
+        // Diagonals (only need those long enough potentially)
+        lines.append(contentsOf: getDiagonals(on: boardToCheck).filter { $0.count >= 5 })
+        return lines
+    }
      enum ThreatType: Int { case five = 10000; case openFour = 5000; case closedFour = 450; case openThree = 400; case closedThree = 50 }
      func findMovesCreatingThreat(player: Player, threat: ThreatType, emptyCells: [Position]) -> [Position] { var threatMoves: [Position] = []; for position in emptyCells { var tempBoard = self.board; tempBoard[position.row][position.col] = state(for: player); if checkForThreatOnBoard(boardToCheck: tempBoard, player: player, threat: threat, lastMove: position) { threatMoves.append(position) } }; return threatMoves }
      func checkForThreatOnBoard(boardToCheck: [[CellState]], player: Player, threat: ThreatType, lastMove: Position) -> Bool { let playerState = state(for: player); let opponentState = state(for: opponent(of: player)); let directions = [(0, 1), (1, 0), (1, 1), (1, -1)]; for (dr, dc) in directions { if threat == .five { if checkForWinOnBoard(boardToCheck: boardToCheck, playerState: playerState, lastRow: lastMove.row, lastCol: lastMove.col) { return true }; continue }; if threat == .openFour { for offset in -5...0 { let r = lastMove.row + dr * offset; let c = lastMove.col + dc * offset; guard checkBounds(row: r, col: c) && checkBounds(row: r + dr * 5, col: c + dc * 5) else { continue }; if boardToCheck[r][c] == .empty && boardToCheck[r+dr][c+dc] == playerState && boardToCheck[r+dr*2][c+dc*2] == playerState && boardToCheck[r+dr*3][c+dc*3] == playerState && boardToCheck[r+dr*4][c+dc*4] == playerState && boardToCheck[r+dr*5][c+dc*5] == .empty { return true } } }; if threat == .closedFour || threat == .openThree || threat == .closedThree { for offset in -4...0 { let r = lastMove.row + dr * offset; let c = lastMove.col + dc * offset; guard checkBounds(row: r, col: c) && checkBounds(row: r + dr * 4, col: c + dc * 4) else { continue }; var pCount = 0; var eCount = 0; var window5: [CellState] = []; for i in 0..<5 { let cellState = boardToCheck[r+dr*i][c+dc*i]; window5.append(cellState); if cellState == playerState { pCount += 1 } else if cellState == .empty { eCount += 1 } }; let rBefore = r - dr; let cBefore = c - dc; let rAfter = r + dr * 5; let cAfter = c + dc * 5; let stateBefore = checkBounds(row: rBefore, col: cBefore) ? boardToCheck[rBefore][cBefore] : opponentState; let stateAfter = checkBounds(row: rAfter, col: cAfter) ? boardToCheck[rAfter][cAfter] : opponentState; let isOpenBefore = stateBefore == .empty; let isOpenAfter = stateAfter == .empty; let isBlockedBefore = !isOpenBefore; let isBlockedAfter = !isOpenAfter; if threat == .closedFour && pCount == 4 && eCount == 1 { if (isBlockedBefore && isOpenAfter) || (isOpenBefore && isBlockedAfter) { return true } } else if threat == .openThree && pCount == 3 && eCount == 2 { if isOpenBefore && isOpenAfter { return true } } else if threat == .closedThree && pCount == 3 && eCount == 2 { if (isBlockedBefore && isOpenAfter) || (isOpenBefore && isBlockedAfter) { return true } } } } }; return false }
-     func placeAiPieceAndEndTurn(at position: Position) { guard checkBounds(row: position.row, col: position.col) && board[position.row][position.col] == .empty else { print("!!! AI INTERNAL ERROR: placeAiPieceAndEndTurn called with invalid position \(position). Current: \(board[position.row][position.col])"); let recoveryMove = findEmptyCells().randomElement(); if let move = recoveryMove { print("!!! AI RECOVERY: Placing random piece at \(move) instead."); placePiece(atRow: move.row, col: move.col) } else { print("!!! AI RECOVERY FAILED: No empty cells left?"); view.isUserInteractionEnabled = true }; return }; placePiece(atRow: position.row, col: position.col) }
+     func placeAiPieceAndEndTurn(at position: Position) { guard checkBounds(row: position.row, col: position.col) && board[position.row][position.col] == .empty else { print("!!! AI INTERNAL ERROR: placeAiPieceAndEndTurn called with invalid position \(position). Current: \(board[position.row][position.col])"); let recoveryMove = findEmptyCells(on: self.board).randomElement(); if let move = recoveryMove { print("!!! AI RECOVERY: Placing random piece at \(move) instead."); placePiece(atRow: move.row, col: move.col) } else { print("!!! AI RECOVERY FAILED: No empty cells left?"); view.isUserInteractionEnabled = true }; return }; placePiece(atRow: position.row, col: position.col) }
      func checkPotentialWin(player: Player, position: Position) -> Bool { var tempBoard = self.board; guard checkBounds(row: position.row, col: position.col) && tempBoard[position.row][position.col] == .empty else { return false }; tempBoard[position.row][position.col] = state(for: player); return checkForWinOnBoard(boardToCheck: tempBoard, playerState: tempBoard[position.row][position.col], lastRow: position.row, lastCol: position.col) }
      func checkForWinOnBoard(boardToCheck: [[CellState]], playerState: CellState, lastRow: Int, lastCol: Int) -> Bool { guard playerState != .empty else { return false }; let directions = [(0, 1), (1, 0), (1, 1), (1, -1)]; for (dr, dc) in directions { var count = 1; for i in 1..<5 { let r = lastRow + dr * i; let c = lastCol + dc * i; if checkBounds(row: r, col: c) && boardToCheck[r][c] == playerState { count += 1 } else { break } }; for i in 1..<5 { let r = lastRow - dr * i; let c = lastCol - dc * i; if checkBounds(row: r, col: c) && boardToCheck[r][c] == playerState { count += 1 } else { break } }; if count >= 5 { return true } }; return false }
-     func findEmptyCells() -> [Position] { var emptyPositions: [Position] = []; for r in 0..<boardSize { for c in 0..<boardSize { if board[r][c] == .empty { emptyPositions.append(Position(row: r, col: c)) } } }; return emptyPositions }
-     func findAdjacentEmptyCells() -> [Position] { var adjacentEmpty = Set<Position>(); let directions = [(-1,-1), (-1,0), (-1,1), (0,-1), (0,1), (1,-1), (1,0), (1,1)]; for r in 0..<boardSize { for c in 0..<boardSize { if board[r][c] != .empty { for (dr, dc) in directions { let nr = r + dr; let nc = c + dc; if checkBounds(row: nr, col: nc) && board[nr][nc] == .empty { adjacentEmpty.insert(Position(row: nr, col: nc)) } } } } }; return Array(adjacentEmpty) }
+    func findEmptyCells(on boardToCheck: [[CellState]]) -> [Position] {
+        var emptyPositions: [Position] = []
+        for r in 0..<boardSize {
+            for c in 0..<boardSize {
+                if boardToCheck[r][c] == .empty {
+                    emptyPositions.append(Position(row: r, col: c))
+                }
+            }
+        }
+        return emptyPositions
+    }
+    // Finds adjacent empty cells on a given board state
+    func findAdjacentEmptyCells(on boardToCheck: [[CellState]]) -> [Position] {
+        var adjacentEmpty = Set<Position>()
+        let directions = [(-1,-1), (-1,0), (-1,1), (0,-1), (0,1), (1,-1), (1,0), (1,1)]
+        for r in 0..<boardSize {
+            for c in 0..<boardSize {
+                if boardToCheck[r][c] != .empty {
+                    for (dr, dc) in directions {
+                        let nr = r + dr
+                        let nc = c + dc
+                        if checkBounds(row: nr, col: nc) && boardToCheck[nr][nc] == .empty {
+                            adjacentEmpty.insert(Position(row: nr, col: nc))
+                        }
+                    }
+                }
+            }
+        }
+        return Array(adjacentEmpty)
+    }
+    // Checks if *anyone* has won on the given board state
+    func checkForWinner(on boardToCheck: [[CellState]]) -> CellState {
+        // Check Rows & Columns
+        for i in 0..<boardSize {
+            if let winner = checkLineForWinner(getRow(i, on: boardToCheck)) { return winner }
+            if let winner = checkLineForWinner(getColumn(i, on: boardToCheck)) { return winner }
+        }
+        // Check Diagonals
+        for diag in getDiagonals(on: boardToCheck) {
+             if let winner = checkLineForWinner(diag) { return winner }
+        }
+        return .empty // No winner
+    }
+
+    // Helper for checkForWinner: checks a single line array
+    private func checkLineForWinner(_ line: [CellState]) -> CellState? {
+        guard line.count >= 5 else { return nil }
+        for i in 0...(line.count - 5) {
+            let potentialWinner = line[i]
+            if potentialWinner != .empty &&
+               line[i+1] == potentialWinner &&
+               line[i+2] == potentialWinner &&
+               line[i+3] == potentialWinner &&
+               line[i+4] == potentialWinner {
+                return potentialWinner
+            }
+        }
+        return nil
+    }
      struct Position: Hashable, Equatable { var row: Int; var col: Int }
-     func isBoardFull() -> Bool { return findEmptyCells().isEmpty }
+     func isBoardFull() -> Bool { return findEmptyCells(on: self.board).isEmpty }
      func checkBounds(row: Int, col: Int) -> Bool { return row >= 0 && row < boardSize && col >= 0 && col < boardSize }
      func state(for player: Player) -> CellState { return player == .black ? .black : .white }
      func opponent(of player: Player) -> Player { return player == .black ? .white : .black }
