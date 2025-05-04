@@ -152,7 +152,7 @@ class ViewController: UIViewController {
             print("--> Board bounds changed or initial draw needed. Performing visual update.")
             self.cellSize = potentialCellSize
             boardView.layer.cornerRadius = 10
-            boardView.layer.masksToBounds = true
+            boardView.layer.masksToBounds = false
             drawProceduralWoodBackground()
             drawBoard()
             redrawPieces()
@@ -651,10 +651,415 @@ class ViewController: UIViewController {
     func switchPlayer() { /* ... */ guard !gameOver else { return }; currentPlayer = (currentPlayer == .black) ? .white : .black; statusLabel.text = "\(currentPlayer == .black ? "Black" : "White")'s Turn"; updateTurnIndicatorLine(); if isAiTurn { view.isUserInteractionEnabled = false; statusLabel.text = "Computer (\(selectedDifficulty)) Turn..."; print("Switching to AI (\(selectedDifficulty)) turn..."); let delay = (selectedDifficulty == .hard) ? 0.6 : 0.4; DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in guard let self = self else { return }; if !self.gameOver && self.isAiTurn { self.performAiTurn() } else { print("AI turn skipped (game over or state changed during delay)"); if !self.gameOver { self.view.isUserInteractionEnabled = true } } } } else { print("Switching to Human turn..."); view.isUserInteractionEnabled = true } }
 
     // --- AI Logic (performAiTurn, performSimpleAiMove, performStandardAiMove, performHardAiMove, helpers) ---
+    // --- NEW: Helper specifically for Medium AI's Open Three detection ---
+    func findSpecificOpenThreeMoves(for player: Player, on boardToCheck: [[CellState]], availableMoves: [Position]) -> [Position] {
+        let playerState = state(for: player)
+        var openThreeMoves: [Position] = []
+        let directions = [(0, 1), (1, 0), (1, 1), (1, -1)] // Horizontal, Vertical, Diag Down, Diag Up
+
+        for position in availableMoves {
+            // Check if placing a piece HERE creates an open three
+            // Pattern: .Empty, Player, Player, Player, .Empty
+            for (dr, dc) in directions {
+                // Check E P P P E centered on position (P P P E starts 1 before, E P P starts 2 before)
+                let patternsToCheck: [[CellState?]] = [
+                    // . E P P P E (position is the E)
+                    [nil, playerState, playerState, playerState, .empty],
+                    // E . P P P E (position is the .)
+                    [.empty, nil, playerState, playerState, .empty],
+                    // E P . P P E (position is the .)
+                    [.empty, playerState, nil, playerState, .empty],
+                    // E P P . P E (position is the .)
+                    [.empty, playerState, playerState, nil, .empty],
+                    // E P P P . E (position is the .)
+                    [.empty, playerState, playerState, playerState, nil]
+                ]
+
+                for patternOffset in 0..<patternsToCheck.count {
+                    let pattern = patternsToCheck[patternOffset]
+                    let startOffset = -patternOffset // How far back from 'position' the pattern starts
+
+                    // Check bounds for the whole 6-cell pattern window (_ E P P P E _)
+                    let checkR_Start = position.row + dr * (startOffset - 1)
+                    let checkC_Start = position.col + dc * (startOffset - 1)
+                    let checkR_End = position.row + dr * (startOffset + 5)
+                    let checkC_End = position.col + dc * (startOffset + 5)
+
+                    guard checkBounds(row: checkR_Start, col: checkC_Start) && checkBounds(row: checkR_End, col: checkC_End) else { continue }
+
+                    // Check the actual pattern, ensuring the spaces are exactly EMPTY
+                    var matches = true
+                    if boardToCheck[checkR_Start][checkC_Start] != .empty { matches = false; break } // Must be empty before
+                    if boardToCheck[checkR_End][checkC_End] != .empty { matches = false; break }     // Must be empty after
+
+                    for i in 0..<5 {
+                        let currentR = position.row + dr * (startOffset + i)
+                        let currentC = position.col + dc * (startOffset + i)
+                        // Use the pattern definition, nil means it should be the currently checked 'position'
+                        let expectedState = (pattern[i] == nil) ? playerState : pattern[i]
+
+                        if boardToCheck[currentR][currentC] != expectedState {
+                            matches = false
+                            break
+                        }
+                    }
+
+                    if matches {
+                        openThreeMoves.append(position)
+                        // Go to next direction once found for this position
+                        // (avoids adding the same position multiple times if it makes multiple threes)
+                        // Note: Or allow multiple additions if we want to prioritize multi-threat moves later?
+                        // For Medium, just finding one is enough.
+                        break // Go to next direction
+                    }
+                } // End patternOffset loop
+                 if openThreeMoves.contains(position) { break } // Go to next position if already added
+            } // End directions loop
+        } // End position loop
+
+        return Array(Set(openThreeMoves)) // Return unique positions
+    }
+    // Function to find empty cells where placing a piece *creates* the specified threat
+    // (This function definition should already be present from the Minimax version)
+    func findMovesCreatingThreat(player: Player, threat: ThreatType, emptyCells: [Position]) -> [Position] {
+        var threatMoves: [Position] = []
+        for position in emptyCells {
+            var tempBoard = self.board // Use the ACTUAL current board state as the base
+            // Only proceed if the cell is actually empty on the real board
+            guard tempBoard[position.row][position.col] == .empty else { continue }
+            
+            tempBoard[position.row][position.col] = state(for: player) // Place piece hypothetically
+
+            // Check if THIS move created the specified threat originating from 'position'
+            if checkForThreatOnBoard(boardToCheck: tempBoard, player: player, threat: threat, lastMove: position) {
+                 threatMoves.append(position)
+            }
+        }
+        return threatMoves
+    }
+
+    // Checks the board *after* a move has been made at lastMove for the specified threat type involving that last move
+    // (This function definition should also be present from the Minimax version)
+    func checkForThreatOnBoard(boardToCheck: [[CellState]], player: Player, threat: ThreatType, lastMove: Position) -> Bool {
+        let playerState = state(for: player)
+        let opponentState = state(for: opponent(of: player))
+        let directions = [(0, 1), (1, 0), (1, 1), (1, -1)] // Horizontal, Vertical, Diag Down, Diag Up
+
+        for (dr, dc) in directions {
+            // FIVE: Check existing win condition checker (already handles this)
+            if threat == .five {
+                 if checkForWinOnBoard(boardToCheck: boardToCheck, playerState: playerState, lastRow: lastMove.row, lastCol: lastMove.col) {
+                     return true
+                 }
+                 continue // Check next direction for five
+            }
+
+            // OPEN FOUR (Check window 6: E P P P P E)
+            if threat == .openFour {
+                 // Check patterns where lastMove is one of the four P's
+                 for offset in -4...0 { // Sliding window start relative to the move that formed the four
+                    let r_windowStart = lastMove.row + dr * offset
+                    let c_windowStart = lastMove.col + dc * offset
+                    
+                    // Ensure the 6-cell window (_ P P P P _) is in bounds
+                    guard checkBounds(row: r_windowStart - dr, col: c_windowStart - dc) &&
+                          checkBounds(row: r_windowStart + dr * 5, col: c_windowStart + dc * 5) else { continue }
+
+                    // Check the pattern _ P P P P _
+                    if boardToCheck[r_windowStart - dr][c_windowStart - dc] == .empty &&     // Before is empty
+                       boardToCheck[r_windowStart][c_windowStart] == playerState &&         // P
+                       boardToCheck[r_windowStart + dr][c_windowStart + dc] == playerState && // P
+                       boardToCheck[r_windowStart + dr * 2][c_windowStart + dc * 2] == playerState && // P
+                       boardToCheck[r_windowStart + dr * 3][c_windowStart + dc * 3] == playerState && // P
+                       boardToCheck[r_windowStart + dr * 4][c_windowStart + dc * 4] == .empty {    // After is empty
+                         return true // Found Open Four
+                    }
+                 }
+            } // End Open Four Check
+
+            // CLOSED FOUR, OPEN THREE, CLOSED THREE (Check window 5 and context)
+            if threat == .closedFour || threat == .openThree || threat == .closedThree {
+                // Check patterns where lastMove is one of the relevant P's or the E in a closed four
+                 for offset in -4...0 { // Check 5-windows containing the new piece
+                     let r = lastMove.row + dr * offset
+                     let c = lastMove.col + dc * offset
+                     // Check bounds for the 5-window
+                     guard checkBounds(row: r, col: c) && checkBounds(row: r + dr * 4, col: c + dc * 4) else { continue }
+
+                     var pCount = 0
+                     var eCount = 0
+                     var oCount = 0 // Opponent count within window
+                     for i in 0..<5 {
+                          let cellState = boardToCheck[r+dr*i][c+dc*i]
+                          if cellState == playerState { pCount += 1 }
+                          else if cellState == .empty { eCount += 1 }
+                          else { oCount += 1} // Opponent piece
+                     }
+                     
+                     // If opponent piece is within the 5-window, it cannot be these threats for 'player'
+                     if oCount > 0 { continue }
+
+                     // Check context cells (before start, after end)
+                     let rBefore = r - dr
+                     let cBefore = c - dc
+                     let rAfter = r + dr * 5
+                     let cAfter = c + dc * 5
+
+                     let stateBefore = checkBounds(row: rBefore, col: cBefore) ? boardToCheck[rBefore][cBefore] : opponentState
+                     let stateAfter = checkBounds(row: rAfter, col: cAfter) ? boardToCheck[rAfter][cAfter] : opponentState
+
+                     let isOpenBefore = stateBefore == .empty
+                     let isOpenAfter = stateAfter == .empty
+                     let isBlockedBefore = !isOpenBefore
+                     let isBlockedAfter = !isOpenAfter
+
+                     // --- Match Threat Type ---
+                     // Closed Four: PPPP_ or _PPPP with one side blocked, other empty
+                     if threat == .closedFour && pCount == 4 && eCount == 1 {
+                          if (isBlockedBefore && isOpenAfter) || (isOpenBefore && isBlockedAfter) {
+                              return true
+                          }
+                     // Open Three: _PPP_ with both sides open
+                     } else if threat == .openThree && pCount == 3 && eCount == 2 {
+                          if isOpenBefore && isOpenAfter {
+                              return true
+                          }
+                      // Closed Three: _PPP_ with one side blocked, one open
+                     } else if threat == .closedThree && pCount == 3 && eCount == 2 {
+                          if (isBlockedBefore && isOpenAfter) || (isOpenBefore && isBlockedAfter) {
+                              return true
+                          }
+                     }
+                 } // End 5-window offset loop
+            } // End if check threes/closed four
+        } // End directions loop
+
+        return false // No threat of the specified type found involving the last move
+    }
+    
+    // Checks if placing 'player' at 'position' would *result* in an Open Three formation
+    // (Re-paste this function if you removed it)
+    func checkPotentialOpenThree(player: Player, position: Position, on boardToCheck: [[CellState]]) -> Bool {
+        guard boardToCheck[position.row][position.col] == .empty else { return false } // Pre-condition
+
+        var tempBoard = boardToCheck
+        tempBoard[position.row][position.col] = state(for: player) // Simulate the move
+        let playerState = state(for: player)
+        let directions = [(0, 1), (1, 0), (1, 1), (1, -1)]
+
+        // Basic pattern check for _PPP_ centered around the new piece
+        // This checks if the piece completes the sequence
+        for (dr, dc) in directions {
+            // Check _ P P P _ where position is the first P
+            if checkPattern(pattern: [.empty, playerState, playerState, playerState, .empty],
+                            startRow: position.row - dr, startCol: position.col - dc,
+                            direction: (dr, dc), on: tempBoard) { return true }
+            // Check _ P P P _ where position is the second P
+            if checkPattern(pattern: [.empty, playerState, playerState, playerState, .empty],
+                            startRow: position.row - dr*2, startCol: position.col - dc*2,
+                            direction: (dr, dc), on: tempBoard) { return true }
+            // Check _ P P P _ where position is the third P
+            if checkPattern(pattern: [.empty, playerState, playerState, playerState, .empty],
+                            startRow: position.row - dr*3, startCol: position.col - dc*3,
+                            direction: (dr, dc), on: tempBoard) { return true }
+        }
+        return false
+    }
+    
+    // --- NEW: Helper to check if a move creates a Four-in-a-row ---
+    func checkPotentialFour(player: Player, position: Position, on boardToCheck: [[CellState]]) -> Bool {
+        // Ensure the position is empty before simulating
+        guard checkBounds(row: position.row, col: position.col) && boardToCheck[position.row][position.col] == .empty else { return false }
+
+        var tempBoard = boardToCheck
+        tempBoard[position.row][position.col] = state(for: player) // Simulate the move
+        let playerState = state(for: player)
+        let directions = [(0, 1), (1, 0), (1, 1), (1, -1)]
+
+        // Check around the placed piece 'position'
+        for (dr, dc) in directions {
+            var count = 1 // Count includes the piece at 'position'
+            // Count in positive direction
+            for i in 1..<4 { // Check up to 3 more stones
+                let r = position.row + dr * i
+                let c = position.col + dc * i
+                if checkBounds(row: r, col: c) && tempBoard[r][c] == playerState {
+                    count += 1
+                } else {
+                    break
+                }
+            }
+            // Count in negative direction
+            for i in 1..<4 { // Check up to 3 more stones
+                let r = position.row - dr * i
+                let c = position.col - dc * i
+                if checkBounds(row: r, col: c) && tempBoard[r][c] == playerState {
+                    count += 1
+                } else {
+                    break
+                }
+            }
+            // If we found exactly 4, it's a four-threat created by this move
+            if count == 4 {
+                 // Optional: Add checks here to distinguish open/closed fours if needed later,
+                 // but for blocking, just finding any four is critical for Medium.
+                 return true
+            }
+        }
+        return false // No four-in-a-row created by this move
+    }
+
+    // Ensure you also have the checkPattern helper:
+    func checkPattern(pattern: [CellState], startRow: Int, startCol: Int, direction: (dr: Int, dc: Int), on boardToCheck: [[CellState]]) -> Bool {
+        for i in 0..<pattern.count {
+            let r = startRow + direction.dr * i
+            let c = startCol + direction.dc * i
+            guard checkBounds(row: r, col: c) else { return false }
+            if boardToCheck[r][c] != pattern[i] { return false }
+        }
+        return true
+    }
+
     // ... (Keep all existing AI logic from the previous step unchanged) ...
      func performAiTurn() { guard !gameOver else { view.isUserInteractionEnabled = true; return }; print("AI Turn (\(selectedDifficulty)): Performing move..."); let startTime = CFAbsoluteTimeGetCurrent(); switch selectedDifficulty { case .easy: performSimpleAiMove(); case .medium: performStandardAiMove(); case .hard: performHardAiMove() }; let timeElapsed = CFAbsoluteTimeGetCurrent() - startTime; print("AI (\(selectedDifficulty)) took \(String(format: "%.3f", timeElapsed)) seconds."); DispatchQueue.main.async { if !self.gameOver && !self.isAiTurn { self.view.isUserInteractionEnabled = true; self.statusLabel.text = "\(self.currentPlayer == .black ? "Black" : "White")'s Turn"; print("AI Turn (\(self.selectedDifficulty)): Completed. Re-enabled user interaction.") } else if self.gameOver { print("AI Turn (\(self.selectedDifficulty)): Game Over.") } else { print("AI Turn (\(self.selectedDifficulty)): Completed, still AI turn? (AI vs AI?)") } } }
-     func performSimpleAiMove() { let emptyCells = findEmptyCells(on: self.board); if emptyCells.isEmpty { print("AI Easy: No empty cells left."); return }; let humanPlayer: Player = opponent(of: aiPlayer); for cell in emptyCells { if checkPotentialWin(player: aiPlayer, position: cell) { print("AI Easy: Found winning move at \(cell)"); placeAiPieceAndEndTurn(at: cell); return } }; for cell in emptyCells { if checkPotentialWin(player: humanPlayer, position: cell) { print("AI Easy: Found blocking move at \(cell)"); placeAiPieceAndEndTurn(at: cell); return } }; let adjacentCells = findAdjacentEmptyCells(on: self.board); if let targetCell = adjacentCells.randomElement() { print("AI Easy: Playing random adjacent move at \(targetCell)"); placeAiPieceAndEndTurn(at: targetCell); return }; if let targetCell = emptyCells.randomElement() { print("AI Easy: Playing completely random move at \(targetCell)"); placeAiPieceAndEndTurn(at: targetCell); return }; print("AI Easy: Could not find any valid move.") }
-     func performStandardAiMove() { let emptyCells = findEmptyCells(on: self.board); if emptyCells.isEmpty { print("AI Medium: No empty cells left."); return }; let humanPlayer: Player = opponent(of: aiPlayer); if let winMove = findMovesCreatingThreat(player: aiPlayer, threat: .five, emptyCells: emptyCells).first { print("AI Medium: Found winning move at \(winMove)"); placeAiPieceAndEndTurn(at: winMove); return }; if let blockMove = findMovesCreatingThreat(player: humanPlayer, threat: .five, emptyCells: emptyCells).first { print("AI Medium: Found blocking win move at \(blockMove)"); placeAiPieceAndEndTurn(at: blockMove); return }; if let createMove = findMovesCreatingThreat(player: aiPlayer, threat: .openThree, emptyCells: emptyCells).first { print("AI Medium: Found creating Open Three move at \(createMove)"); placeAiPieceAndEndTurn(at: createMove); return }; if let blockMove = findMovesCreatingThreat(player: humanPlayer, threat: .openThree, emptyCells: emptyCells).first { print("AI Medium: Found blocking Open Three move at \(blockMove)"); placeAiPieceAndEndTurn(at: blockMove); return }; if let createMove = findMovesCreatingThreat(player: aiPlayer, threat: .closedThree, emptyCells: emptyCells).first { print("AI Medium: Found creating Closed Three move at \(createMove)"); placeAiPieceAndEndTurn(at: createMove); return }; if let blockMove = findMovesCreatingThreat(player: humanPlayer, threat: .closedThree, emptyCells: emptyCells).first { print("AI Medium: Found blocking Closed Three move at \(blockMove)"); placeAiPieceAndEndTurn(at: blockMove); return }; print("AI Medium: No better move found. Falling back to Simple logic."); performSimpleAiMove() }
+    // --- REVISED: Easy AI Logic ---
+    // --- REVISED: Easy AI Logic (with probabilistic Open Three block) ---
+    func performSimpleAiMove() {
+        let emptyCells = findEmptyCells(on: self.board)
+        if emptyCells.isEmpty { print("AI Easy: No empty cells left."); return }
+        let humanPlayer: Player = opponent(of: aiPlayer)
+
+        // Priority 1: Win?
+        for cell in emptyCells {
+            if checkPotentialWin(player: aiPlayer, position: cell) {
+                print("AI Easy: Found winning move at \(cell)")
+                placeAiPieceAndEndTurn(at: cell); return
+            }
+        }
+
+        // Priority 2: Block Win?
+        for cell in emptyCells {
+            if checkPotentialWin(player: humanPlayer, position: cell) {
+                print("AI Easy: Found blocking win move at \(cell)")
+                placeAiPieceAndEndTurn(at: cell); return
+            }
+        }
+
+        // --- NEW Priority 3: Probabilistic Block Opponent's Open Three ---
+        var humanOpenThreeBlockingMoves: [Position] = []
+        for cell in emptyCells {
+            // Check if HUMAN playing at 'cell' creates an Open Three
+            if checkPotentialOpenThree(player: humanPlayer, position: cell, on: self.board) {
+                humanOpenThreeBlockingMoves.append(cell) // Add the cell AI needs to play at to block
+            }
+        }
+
+        if !humanOpenThreeBlockingMoves.isEmpty {
+            // Make Easy AI block only sometimes (e.g., 70% chance)
+            let shouldBlock = Int.random(in: 0..<100) < 70 // 70% chance to block
+            if shouldBlock, let blockMove = humanOpenThreeBlockingMoves.randomElement() {
+                print("AI Easy: Decided to block opponent's potential Open Three at \(blockMove)")
+                placeAiPieceAndEndTurn(at: blockMove); return
+            } else if !shouldBlock {
+                 print("AI Easy: Found opponent Open Three threat but decided not to block (probability).")
+                 // If not blocking, fall through to adjacent/first empty logic
+            }
+        }
+        // --- End NEW Priority ---
+
+
+        // Priority 4: Play adjacent to any existing piece? (Was P3)
+        let adjacentCells = findAdjacentEmptyCells(on: self.board)
+        if let targetCell = adjacentCells.randomElement() {
+            print("AI Easy: Playing random adjacent move at \(targetCell)")
+            placeAiPieceAndEndTurn(at: targetCell); return
+        }
+
+        // Priority 5: Play the *first* available empty cell (deterministic fallback) (Was P4)
+        if let firstEmpty = emptyCells.first {
+             print("AI Easy: No adjacent moves found. Playing first available empty cell at \(firstEmpty).")
+             placeAiPieceAndEndTurn(at: firstEmpty)
+             return
+        }
+
+        // Should be unreachable
+        print("AI Easy: Could not find any valid move.")
+    }
+    // --- REVISED: Medium AI Logic ---
+    func performStandardAiMove() {
+        let emptyCells = findEmptyCells(on: self.board)
+        if emptyCells.isEmpty { print("AI Medium: No empty cells left."); return }
+        let humanPlayer: Player = opponent(of: aiPlayer)
+
+        // Priority 1: Win?
+        if let winMove = findMovesCreatingThreat(player: aiPlayer, threat: .five, emptyCells: emptyCells).first {
+            print("AI Medium: Found winning move at \(winMove)")
+            placeAiPieceAndEndTurn(at: winMove); return
+        }
+
+        // Priority 2: Block Win?
+        if let blockWinMove = findMovesCreatingThreat(player: humanPlayer, threat: .five, emptyCells: emptyCells).first {
+            print("AI Medium: Found blocking win move at \(blockWinMove)")
+            placeAiPieceAndEndTurn(at: blockWinMove); return
+        }
+
+        // --- NEW Priority 3: Block Opponent's Four-in-a-row Threat ---
+        var humanFourThreatBlocks: [Position] = []
+        for cell in emptyCells {
+            // Check if HUMAN playing at 'cell' would create a Four
+            if checkPotentialFour(player: humanPlayer, position: cell, on: self.board) {
+                humanFourThreatBlocks.append(cell) // Add the cell AI needs to play at to block
+            }
+        }
+        if let blockFourMove = humanFourThreatBlocks.randomElement() { // Block one if multiple exist
+            print("AI Medium: Found blocking opponent's potential Four-in-a-row at \(blockFourMove)")
+            placeAiPieceAndEndTurn(at: blockFourMove); return
+        }
+        // --- End NEW Priority ---
+
+
+        // Priority 4: Create an Open Three for AI? (Was Priority 3)
+        var aiOpenThreeMoves: [Position] = []
+        for cell in emptyCells {
+            if checkPotentialOpenThree(player: aiPlayer, position: cell, on: self.board) {
+                aiOpenThreeMoves.append(cell)
+            }
+        }
+        if let createMove = aiOpenThreeMoves.randomElement() {
+            print("AI Medium: Found creating Open Three move at \(createMove)")
+            placeAiPieceAndEndTurn(at: createMove); return
+        }
+
+        // Priority 5: Block an Open Three for Human? (Was Priority 4)
+        var humanOpenThreeBlockingMoves: [Position] = []
+        for cell in emptyCells {
+            if checkPotentialOpenThree(player: humanPlayer, position: cell, on: self.board) {
+                humanOpenThreeBlockingMoves.append(cell)
+            }
+        }
+        if let blockThreeMove = humanOpenThreeBlockingMoves.randomElement() {
+            print("AI Medium: Found blocking opponent's potential Open Three at \(blockThreeMove)")
+            placeAiPieceAndEndTurn(at: blockThreeMove); return
+        }
+
+        // --- Fallback Logic ---
+        // Priority 6: Play adjacent to any existing piece? (Was P5)
+        let adjacentCells = findAdjacentEmptyCells(on: self.board)
+        if let targetCell = adjacentCells.randomElement() {
+            print("AI Medium: No threats found. Playing random adjacent move at \(targetCell)")
+            placeAiPieceAndEndTurn(at: targetCell); return
+        }
+
+        // Priority 7: Play the *first* available empty cell (Was P6)
+        if let firstEmpty = emptyCells.first {
+             print("AI Medium: No adjacent moves found. Playing first available empty cell at \(firstEmpty).")
+             placeAiPieceAndEndTurn(at: firstEmpty)
+             return
+        }
+
+        // Should be unreachable
+        print("AI Medium: Could not find any valid move.")
+    }
     // --- REVISED HARD AI LOGIC (Uses Minimax) ---
     func performHardAiMove() {
         let emptyCells = findEmptyCells(on: self.board)
@@ -721,7 +1126,7 @@ class ViewController: UIViewController {
         var bestScore = Int.min
         var bestMove: Position? = nil
         var alpha = Int.min // Renamed to avoid conflict
-        var beta = Int.max  // Renamed to avoid conflict
+        let beta = Int.max  // Renamed to avoid conflict
 
         // --- MODIFIED Move Generation: Prioritize adjacent cells ---
         let adjacentMoves = findAdjacentEmptyCells(on: currentBoard)
@@ -921,8 +1326,6 @@ class ViewController: UIViewController {
         return lines
     }
      enum ThreatType: Int { case five = 10000; case openFour = 5000; case closedFour = 450; case openThree = 400; case closedThree = 50 }
-     func findMovesCreatingThreat(player: Player, threat: ThreatType, emptyCells: [Position]) -> [Position] { var threatMoves: [Position] = []; for position in emptyCells { var tempBoard = self.board; tempBoard[position.row][position.col] = state(for: player); if checkForThreatOnBoard(boardToCheck: tempBoard, player: player, threat: threat, lastMove: position) { threatMoves.append(position) } }; return threatMoves }
-     func checkForThreatOnBoard(boardToCheck: [[CellState]], player: Player, threat: ThreatType, lastMove: Position) -> Bool { let playerState = state(for: player); let opponentState = state(for: opponent(of: player)); let directions = [(0, 1), (1, 0), (1, 1), (1, -1)]; for (dr, dc) in directions { if threat == .five { if checkForWinOnBoard(boardToCheck: boardToCheck, playerState: playerState, lastRow: lastMove.row, lastCol: lastMove.col) { return true }; continue }; if threat == .openFour { for offset in -5...0 { let r = lastMove.row + dr * offset; let c = lastMove.col + dc * offset; guard checkBounds(row: r, col: c) && checkBounds(row: r + dr * 5, col: c + dc * 5) else { continue }; if boardToCheck[r][c] == .empty && boardToCheck[r+dr][c+dc] == playerState && boardToCheck[r+dr*2][c+dc*2] == playerState && boardToCheck[r+dr*3][c+dc*3] == playerState && boardToCheck[r+dr*4][c+dc*4] == playerState && boardToCheck[r+dr*5][c+dc*5] == .empty { return true } } }; if threat == .closedFour || threat == .openThree || threat == .closedThree { for offset in -4...0 { let r = lastMove.row + dr * offset; let c = lastMove.col + dc * offset; guard checkBounds(row: r, col: c) && checkBounds(row: r + dr * 4, col: c + dc * 4) else { continue }; var pCount = 0; var eCount = 0; var window5: [CellState] = []; for i in 0..<5 { let cellState = boardToCheck[r+dr*i][c+dc*i]; window5.append(cellState); if cellState == playerState { pCount += 1 } else if cellState == .empty { eCount += 1 } }; let rBefore = r - dr; let cBefore = c - dc; let rAfter = r + dr * 5; let cAfter = c + dc * 5; let stateBefore = checkBounds(row: rBefore, col: cBefore) ? boardToCheck[rBefore][cBefore] : opponentState; let stateAfter = checkBounds(row: rAfter, col: cAfter) ? boardToCheck[rAfter][cAfter] : opponentState; let isOpenBefore = stateBefore == .empty; let isOpenAfter = stateAfter == .empty; let isBlockedBefore = !isOpenBefore; let isBlockedAfter = !isOpenAfter; if threat == .closedFour && pCount == 4 && eCount == 1 { if (isBlockedBefore && isOpenAfter) || (isOpenBefore && isBlockedAfter) { return true } } else if threat == .openThree && pCount == 3 && eCount == 2 { if isOpenBefore && isOpenAfter { return true } } else if threat == .closedThree && pCount == 3 && eCount == 2 { if (isBlockedBefore && isOpenAfter) || (isOpenBefore && isBlockedAfter) { return true } } } } }; return false }
      func placeAiPieceAndEndTurn(at position: Position) { guard checkBounds(row: position.row, col: position.col) && board[position.row][position.col] == .empty else { print("!!! AI INTERNAL ERROR: placeAiPieceAndEndTurn called with invalid position \(position). Current: \(board[position.row][position.col])"); let recoveryMove = findEmptyCells(on: self.board).randomElement(); if let move = recoveryMove { print("!!! AI RECOVERY: Placing random piece at \(move) instead."); placePiece(atRow: move.row, col: move.col) } else { print("!!! AI RECOVERY FAILED: No empty cells left?"); view.isUserInteractionEnabled = true }; return }; placePiece(atRow: position.row, col: position.col) }
      func checkPotentialWin(player: Player, position: Position) -> Bool { var tempBoard = self.board; guard checkBounds(row: position.row, col: position.col) && tempBoard[position.row][position.col] == .empty else { return false }; tempBoard[position.row][position.col] = state(for: player); return checkForWinOnBoard(boardToCheck: tempBoard, playerState: tempBoard[position.row][position.col], lastRow: position.row, lastCol: position.col) }
      func checkForWinOnBoard(boardToCheck: [[CellState]], playerState: CellState, lastRow: Int, lastCol: Int) -> Bool { guard playerState != .empty else { return false }; let directions = [(0, 1), (1, 0), (1, 1), (1, -1)]; for (dr, dc) in directions { var count = 1; for i in 1..<5 { let r = lastRow + dr * i; let c = lastCol + dc * i; if checkBounds(row: r, col: c) && boardToCheck[r][c] == playerState { count += 1 } else { break } }; for i in 1..<5 { let r = lastRow - dr * i; let c = lastCol - dc * i; if checkBounds(row: r, col: c) && boardToCheck[r][c] == playerState { count += 1 } else { break } }; if count >= 5 { return true } }; return false }
