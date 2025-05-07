@@ -31,19 +31,22 @@ class ViewController: UIViewController {
     let aiPlayer: Player = .white
     private var selectedDifficulty: AIDifficulty = .easy
     var isAiTurn: Bool { currentGameMode == .humanVsAI && currentPlayer == aiPlayer }
+    private var aiShouldCancelMove = false
+    private var aiCalculationTurnID: Int = 0
 
     // --- NEW: Minimax AI Constants ---
-    private let MAX_DEPTH = 2 // Initial search depth (Adjust for performance/strength)
-    private let WIN_SCORE = 1000000 // Score for winning state
-    private let LOSE_SCORE = -1000000 // Score for losing state
+    private let MAX_DEPTH = 3 // Initial search depth (Adjust for performance/strength)
+    private let WIN_SCORE = 1000000
+    private let LOSE_SCORE = -1000000
     private let DRAW_SCORE = 0
-    // Score values for patterns (adjust weights as needed)
-    private let SCORE_OPEN_FOUR = 50000
-    private let SCORE_CLOSED_FOUR = 4500
-    private let SCORE_OPEN_THREE = 4000
-    private let SCORE_CLOSED_THREE = 500
-    private let SCORE_OPEN_TWO = 100
-    private let SCORE_CLOSED_TWO = 10
+    // Significantly increase threat scores
+    private let SCORE_OPEN_FOUR = 500000 // Was 50000
+    private let SCORE_CLOSED_FOUR = 10000 // Was 4500 (Still forcing)
+    private let SCORE_OPEN_THREE = 8000 // Was 4000 (Very important)
+    // Keep lower threats less significant relative to the above
+    private let SCORE_CLOSED_THREE = 300  // Was 500
+    private let SCORE_OPEN_TWO = 50   // Was 100
+    private let SCORE_CLOSED_TWO = 10   // Was 10
     // --- End Minimax Constants ---
     
     // --- Layer References ---
@@ -235,8 +238,8 @@ class ViewController: UIViewController {
         print("Setting up game element constraints..."); statusLabel.translatesAutoresizingMaskIntoConstraints = false; boardView.translatesAutoresizingMaskIntoConstraints = false; resetButton.translatesAutoresizingMaskIntoConstraints = false
         let safeArea = view.safeAreaLayoutGuide
         let centerXConstraint = boardView.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor); let centerYConstraint = boardView.centerYAnchor.constraint(equalTo: safeArea.centerYAnchor)
-        let aspectRatioConstraint = boardView.heightAnchor.constraint(equalTo: boardView.widthAnchor, multiplier: 1.0); aspectRatioConstraint.priority = .required; let leadingConstraint = boardView.leadingAnchor.constraint(greaterThanOrEqualTo: safeArea.leadingAnchor, constant: 20)
-        let trailingConstraint = boardView.trailingAnchor.constraint(lessThanOrEqualTo: safeArea.trailingAnchor, constant: -20); let topConstraint = boardView.topAnchor.constraint(greaterThanOrEqualTo: safeArea.topAnchor, constant: 80)
+        let aspectRatioConstraint = boardView.heightAnchor.constraint(equalTo: boardView.widthAnchor, multiplier: 1.0); aspectRatioConstraint.priority = .required; let leadingConstraint = boardView.leadingAnchor.constraint(greaterThanOrEqualTo: safeArea.leadingAnchor, constant: 5)
+        let trailingConstraint = boardView.trailingAnchor.constraint(lessThanOrEqualTo: safeArea.trailingAnchor, constant: -5); let topConstraint = boardView.topAnchor.constraint(greaterThanOrEqualTo: safeArea.topAnchor, constant: 80)
         let bottomConstraint = boardView.bottomAnchor.constraint(lessThanOrEqualTo: safeArea.bottomAnchor, constant: -80); let widthConstraint = boardView.widthAnchor.constraint(equalTo: safeArea.widthAnchor, constant: -40); widthConstraint.priority = .defaultHigh
         let heightConstraint = boardView.heightAnchor.constraint(equalTo: safeArea.heightAnchor, constant: -160); heightConstraint.priority = .defaultHigh
         NSLayoutConstraint.activate([centerXConstraint, centerYConstraint, aspectRatioConstraint, leadingConstraint, trailingConstraint, topConstraint, bottomConstraint, widthConstraint, heightConstraint])
@@ -524,7 +527,7 @@ class ViewController: UIViewController {
 
     // --- Game Logic & Interaction ---
     func setupNewGameVariablesOnly() { /* ... */ currentPlayer = .black; board = Array(repeating: Array(repeating: .empty, count: boardSize), count: boardSize); gameOver = false; pieceViews = Array(repeating: Array(repeating: nil, count: boardSize), count: boardSize); lastWinningPositions = nil }
-    func setupNewGame() { /* ... ADDED RESETcellSize/Bounds */ print("setupNewGame called. Current Mode: \(currentGameMode)"); gameOver = false; currentPlayer = .black; statusLabel.text = "Black's Turn"; board = Array(repeating: Array(repeating: .empty, count: boardSize), count: boardSize); boardView.subviews.forEach { $0.removeFromSuperview() }; boardView.layer.sublayers?.filter { $0.name == "gridLine" || $0.name == "winningLine" || $0.name == "lastMoveIndicator"}.forEach { $0.removeFromSuperlayer() }; woodBackgroundLayers.forEach { $0.removeFromSuperlayer() }; woodBackgroundLayers.removeAll(); winningLineLayer = nil; lastMoveIndicatorLayer = nil; lastMovePosition = nil; lastWinningPositions = nil; moveCount = 0; moveCountLabel.text = "Moves: 0"; pieceViews = Array(repeating: Array(repeating: nil, count: boardSize), count: boardSize); cellSize = 0; lastDrawnBoardBounds = .zero; updateTurnIndicatorLine(); turnIndicatorView?.isHidden = false; print("setupNewGame: Reset game state. Requesting layout update."); view.setNeedsLayout() }
+    func setupNewGame() { /* ... ADDED RESETcellSize/Bounds */ print("setupNewGame called. Current Mode: \(currentGameMode)"); gameOver = false; currentPlayer = .black; statusLabel.text = "Black's Turn"; board = Array(repeating: Array(repeating: .empty, count: boardSize), count: boardSize); boardView.subviews.forEach { $0.removeFromSuperview() }; boardView.layer.sublayers?.filter { $0.name == "gridLine" || $0.name == "winningLine" || $0.name == "lastMoveIndicator"}.forEach { $0.removeFromSuperlayer() }; woodBackgroundLayers.forEach { $0.removeFromSuperlayer() }; woodBackgroundLayers.removeAll(); winningLineLayer = nil; lastMoveIndicatorLayer = nil; lastMovePosition = nil; lastWinningPositions = nil; moveCount = 0; moveCountLabel.text = "Moves: 0"; pieceViews = Array(repeating: Array(repeating: nil, count: boardSize), count: boardSize); cellSize = 0; lastDrawnBoardBounds = .zero; aiShouldCancelMove = false; updateTurnIndicatorLine(); turnIndicatorView?.isHidden = false; print("setupNewGame: Reset game state. Requesting layout update."); view.setNeedsLayout() }
     func calculateCellSize() -> CGFloat { /* ... */ guard boardView.bounds.width > 0, boardView.bounds.height > 0 else { return 0 }; let boardDimension = min(boardView.bounds.width, boardView.bounds.height) - (boardPadding * 2); guard boardSize > 1 else { return boardDimension }; let size = boardDimension / CGFloat(boardSize - 1); return max(0, size) }
     func addTapGestureRecognizer() { /* ... */ guard let currentBoardView = boardView else { print("FATAL ERROR: boardView outlet is NIL..."); return }; currentBoardView.gestureRecognizers?.forEach { currentBoardView.removeGestureRecognizer($0) }; let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:))); currentBoardView.addGestureRecognizer(tap); }
     
@@ -719,18 +722,36 @@ class ViewController: UIViewController {
 
         return Array(Set(openThreeMoves)) // Return unique positions
     }
-    // Function to find empty cells where placing a piece *creates* the specified threat
-    // (This function definition should already be present from the Minimax version)
+    // --- NEW Overload for Minimax ---
+    // Finds empty cells on a GIVEN board where placing a piece *creates* the specified threat
+    func findMovesCreatingThreat(on boardToCheck: [[CellState]], for player: Player, threat: ThreatType, emptyCells: [Position]) -> [Position] {
+        var threatMoves: [Position] = []
+        for position in emptyCells {
+            var tempBoard = boardToCheck // Use the PASSED board state
+            // Check if cell is empty on the passed board
+            guard checkBounds(row: position.row, col: position.col) &&
+                  tempBoard[position.row][position.col] == .empty else { continue }
+
+            tempBoard[position.row][position.col] = state(for: player)
+
+            if checkForThreatOnBoard(boardToCheck: tempBoard, player: player, threat: threat, lastMove: position) {
+                 threatMoves.append(position)
+            }
+        }
+        return threatMoves
+    }
+
+    // --- Keep Original Version for Medium/Easy AI ---
+    // Finds empty cells on the CURRENT game board where placing a piece *creates* the specified threat
     func findMovesCreatingThreat(player: Player, threat: ThreatType, emptyCells: [Position]) -> [Position] {
         var threatMoves: [Position] = []
         for position in emptyCells {
-            var tempBoard = self.board // Use the ACTUAL current board state as the base
-            // Only proceed if the cell is actually empty on the real board
-            guard tempBoard[position.row][position.col] == .empty else { continue }
-            
-            tempBoard[position.row][position.col] = state(for: player) // Place piece hypothetically
+            var tempBoard = self.board // Use self.board
+            guard checkBounds(row: position.row, col: position.col) &&
+                  tempBoard[position.row][position.col] == .empty else { continue }
 
-            // Check if THIS move created the specified threat originating from 'position'
+            tempBoard[position.row][position.col] = state(for: player)
+
             if checkForThreatOnBoard(boardToCheck: tempBoard, player: player, threat: threat, lastMove: position) {
                  threatMoves.append(position)
             }
@@ -837,33 +858,39 @@ class ViewController: UIViewController {
         return false // No threat of the specified type found involving the last move
     }
     
-    // Checks if placing 'player' at 'position' would *result* in an Open Three formation
-    // (Re-paste this function if you removed it)
+    // --- REVISED: Robust Open Three Check ---
+    // Checks if placing 'player' at 'position' would *result* in an Open Three formation (_PPP_)
     func checkPotentialOpenThree(player: Player, position: Position, on boardToCheck: [[CellState]]) -> Bool {
-        guard boardToCheck[position.row][position.col] == .empty else { return false } // Pre-condition
+        guard checkBounds(row: position.row, col: position.col) &&
+              boardToCheck[position.row][position.col] == .empty else { return false } // Pre-condition
 
         var tempBoard = boardToCheck
         tempBoard[position.row][position.col] = state(for: player) // Simulate the move
         let playerState = state(for: player)
-        let directions = [(0, 1), (1, 0), (1, 1), (1, -1)]
+        let directions = [(0, 1), (1, 0), (1, 1), (1, -1)] // Horizontal, Vertical, Diag Down, Diag Up
 
-        // Basic pattern check for _PPP_ centered around the new piece
-        // This checks if the piece completes the sequence
         for (dr, dc) in directions {
-            // Check _ P P P _ where position is the first P
-            if checkPattern(pattern: [.empty, playerState, playerState, playerState, .empty],
-                            startRow: position.row - dr, startCol: position.col - dc,
-                            direction: (dr, dc), on: tempBoard) { return true }
-            // Check _ P P P _ where position is the second P
-            if checkPattern(pattern: [.empty, playerState, playerState, playerState, .empty],
-                            startRow: position.row - dr*2, startCol: position.col - dc*2,
-                            direction: (dr, dc), on: tempBoard) { return true }
-            // Check _ P P P _ where position is the third P
-            if checkPattern(pattern: [.empty, playerState, playerState, playerState, .empty],
-                            startRow: position.row - dr*3, startCol: position.col - dc*3,
-                            direction: (dr, dc), on: tempBoard) { return true }
+            // We need to check all possible locations of the newly placed stone within a _PPP_ pattern.
+            // Iterate through offsets such that 'position' could be any of the 'P's.
+            for i in 1...3 { // Position could be the 1st, 2nd, or 3rd 'P'
+                let startRow = position.row - dr * i
+                let startCol = position.col - dc * i
+
+                // Check bounds for the 5-cell window _PPP_
+                guard checkBounds(row: startRow, col: startCol) &&
+                      checkBounds(row: startRow + dr * 4, col: startCol + dc * 4) else { continue }
+
+                // Check the specific _PPP_ pattern
+                if tempBoard[startRow][startCol] == .empty &&                   // Slot 0: Empty
+                   tempBoard[startRow + dr][startCol + dc] == playerState &&     // Slot 1: Player
+                   tempBoard[startRow + dr * 2][startCol + dc * 2] == playerState && // Slot 2: Player
+                   tempBoard[startRow + dr * 3][startCol + dc * 3] == playerState && // Slot 3: Player
+                   tempBoard[startRow + dr * 4][startCol + dc * 4] == .empty {   // Slot 4: Empty
+                    return true // Found an Open Three
+                }
+            }
         }
-        return false
+        return false // No Open Three created by this move
     }
     
     // --- NEW: Helper to check if a move creates a Four-in-a-row ---
@@ -921,7 +948,19 @@ class ViewController: UIViewController {
     }
 
     // ... (Keep all existing AI logic from the previous step unchanged) ...
-     func performAiTurn() { guard !gameOver else { view.isUserInteractionEnabled = true; return }; print("AI Turn (\(selectedDifficulty)): Performing move..."); let startTime = CFAbsoluteTimeGetCurrent(); switch selectedDifficulty { case .easy: performSimpleAiMove(); case .medium: performStandardAiMove(); case .hard: performHardAiMove() }; let timeElapsed = CFAbsoluteTimeGetCurrent() - startTime; print("AI (\(selectedDifficulty)) took \(String(format: "%.3f", timeElapsed)) seconds."); DispatchQueue.main.async { if !self.gameOver && !self.isAiTurn { self.view.isUserInteractionEnabled = true; self.statusLabel.text = "\(self.currentPlayer == .black ? "Black" : "White")'s Turn"; print("AI Turn (\(self.selectedDifficulty)): Completed. Re-enabled user interaction.") } else if self.gameOver { print("AI Turn (\(self.selectedDifficulty)): Game Over.") } else { print("AI Turn (\(self.selectedDifficulty)): Completed, still AI turn? (AI vs AI?)") } } }
+    func performAiTurn() { guard !gameOver else { view.isUserInteractionEnabled = true; return }; aiShouldCancelMove = false; aiCalculationTurnID += 1; print("AI Turn (\(selectedDifficulty)): Performing move..."); let startTime = CFAbsoluteTimeGetCurrent(); switch selectedDifficulty { case .easy: performSimpleAiMove(); DispatchQueue.main.async { self.checkAndReenableInteraction() }; case .medium: performStandardAiMove(); DispatchQueue.main.async { self.checkAndReenableInteraction() }; case .hard: performHardAiMove() }; let timeElapsed = CFAbsoluteTimeGetCurrent() - startTime; print("AI (\(selectedDifficulty)) took \(String(format: "%.3f", timeElapsed)) seconds."); DispatchQueue.main.async { if !self.gameOver && !self.isAiTurn { self.view.isUserInteractionEnabled = true; self.statusLabel.text = "\(self.currentPlayer == .black ? "Black" : "White")'s Turn"; print("AI Turn (\(self.selectedDifficulty)): Completed. Re-enabled user interaction.") } else if self.gameOver { print("AI Turn (\(self.selectedDifficulty)): Game Over.") } else { print("AI Turn (\(self.selectedDifficulty)): Completed, still AI turn? (AI vs AI?)") } } }
+    // Helper called after Easy/Medium AI (which run synchronously)
+    func checkAndReenableInteraction() {
+         if !self.gameOver && !self.isAiTurn { // If it's now human's turn
+             self.view.isUserInteractionEnabled = true
+             self.statusLabel.text = "\(self.currentPlayer == .black ? "Black" : "White")'s Turn"; // Update label correctly
+             print("AI Turn (\(self.selectedDifficulty)): Completed. Re-enabled user interaction.")
+         } else if self.gameOver {
+             // Interaction enabled by showGameOverOverlay
+             print("AI Turn (\(self.selectedDifficulty)): Game Over.")
+         }
+         // else: Still AI turn (AI vs AI) or some other state, leave interaction disabled.
+    }
     // --- REVISED: Easy AI Logic ---
     // --- REVISED: Easy AI Logic (with probabilistic Open Three block) ---
     func performSimpleAiMove() {
@@ -1060,213 +1099,499 @@ class ViewController: UIViewController {
         // Should be unreachable
         print("AI Medium: Could not find any valid move.")
     }
-    // --- REVISED HARD AI LOGIC (Uses Minimax) ---
-    func performHardAiMove() {
-        let emptyCells = findEmptyCells(on: self.board)
-        guard !emptyCells.isEmpty else { print("AI Hard (Minimax): No empty cells left."); return }
-
-        let humanPlayer = opponent(of: aiPlayer)
-
-        // --- Immediate Win/Loss Check (Optimization) ---
-        // Check if AI can win immediately
-        for cell in emptyCells {
-            if checkPotentialWin(player: aiPlayer, position: cell) {
-                print("AI Hard (Minimax): Found immediate winning move at \(cell)")
-                placeAiPieceAndEndTurn(at: cell); return
-            }
-        }
-        // Check if Human can win immediately (must block)
-        var blockingMoves: [Position] = []
-        for cell in emptyCells {
-            if checkPotentialWin(player: humanPlayer, position: cell) {
-                blockingMoves.append(cell)
-            }
-        }
-        if let blockMove = blockingMoves.first { // Usually only one immediate threat
-            print("AI Hard (Minimax): Found immediate blocking move at \(blockMove)")
-            placeAiPieceAndEndTurn(at: blockMove); return
-        }
-        // --- End Immediate Checks ---
-
-
-        // --- Handle first move(s) for better opening ---
-        let totalPieces = board.flatMap({ $0 }).filter({ $0 != .empty }).count
-        if totalPieces < 2 {
-            let center = boardSize / 2
-            let move = Position(row: center, col: center)
-            if checkBounds(row: center, col: center) && board[center][center] == .empty {
-                print("AI Hard (Minimax): First move, playing center.")
-                placeAiPieceAndEndTurn(at: move)
+    // --- REVISED HARD AI LOGIC with Iterative Deepening & Time Limit ---
+        func performHardAiMove() {
+            let currentBoardState = self.board
+            let emptyCellsOnBoard = findEmptyCells(on: currentBoardState) // Renamed for clarity
+            guard !emptyCellsOnBoard.isEmpty else {
+                print("AI Hard (Iterative): No empty cells left.")
+                DispatchQueue.main.async { self.checkAndReenableInteraction() }
                 return
-            } else {
-                 // If center taken, play adjacent (simple fallback for now)
-                 if let adjacentMove = findAdjacentEmptyCells(on: self.board).randomElement() {
-                     print("AI Hard (Minimax): First move, center taken, playing adjacent.")
-                     placeAiPieceAndEndTurn(at: adjacentMove)
-                     return
-                 }
+            }
+
+            let humanPlayer = opponent(of: aiPlayer)
+
+            // Quick checks (immediate win/loss) - these are fast and should remain
+            // For these quick checks, consider all empty cells to ensure safety/opportunism
+            for cell in emptyCellsOnBoard {
+                if checkPotentialWin(player: aiPlayer, position: cell, on: currentBoardState) {
+                    print("AI Hard (Iterative): Found immediate winning move at \(cell)")
+                    placeAiPieceAndEndTurn(at: cell); return
+                }
+            }
+            var blockingMoves: [Position] = []
+            for cell in emptyCellsOnBoard {
+                if checkPotentialWin(player: humanPlayer, position: cell, on: currentBoardState) {
+                    blockingMoves.append(cell)
+                }
+            }
+            // If multiple blocking moves, the first one found is fine for this quick check.
+            // The deeper search would evaluate them more thoroughly if no immediate block was taken.
+            if let blockMove = blockingMoves.first {
+                print("AI Hard (Iterative): Found immediate blocking move at \(blockMove)")
+                placeAiPieceAndEndTurn(at: blockMove); return
+            }
+
+            let totalPieces = currentBoardState.flatMap({ $0 }).filter({ $0 != .empty }).count
+            if totalPieces < 2 { // Opening moves
+                let center = boardSize / 2
+                let move = Position(row: center, col: center)
+                if checkBounds(row: center, col: center) && currentBoardState[center][center] == .empty {
+                    print("AI Hard (Iterative): First move, playing center.")
+                    placeAiPieceAndEndTurn(at: move); return
+                } else if let adjacentMove = findAdjacentEmptyCells(on: currentBoardState).randomElement() {
+                    print("AI Hard (Iterative): First move, center taken, playing adjacent.")
+                    placeAiPieceAndEndTurn(at: adjacentMove); return
+                }
+            }
+
+            let calculationID = self.aiCalculationTurnID
+            var bestMoveFromCompletedDepth: Position? = nil
+            // Set a time limit slightly less than 3s to account for overhead.
+            let timeBudget: TimeInterval = 2.7
+            var searchDepthAchieved = 0
+
+            print("AI Hard (Iterative): Starting iterative deepening up to depth \(MAX_DEPTH), time budget: \(timeBudget)s.")
+
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                guard let self = self else { return }
+                let overallStartTime = CFAbsoluteTimeGetCurrent()
+
+                for currentIterativeDepth in 1...self.MAX_DEPTH {
+                    let timeElapsedSoFar = CFAbsoluteTimeGetCurrent() - overallStartTime
+                    let remainingTime = timeBudget - timeElapsedSoFar
+
+                    if self.aiShouldCancelMove || self.aiCalculationTurnID != calculationID {
+                        print("AI Hard (Iterative): Calculation cancelled or turn ID mismatch before depth \(currentIterativeDepth).")
+                        break
+                    }
+                    if remainingTime <= 0.1 { // Not enough time for a meaningful search (0.1s buffer)
+                        print("AI Hard (Iterative): Time limit reached before starting depth \(currentIterativeDepth). Using best move from depth \(searchDepthAchieved).")
+                        break
+                    }
+
+                    print("AI Hard (Iterative): Starting search for depth \(currentIterativeDepth) with \(String(format: "%.2f", remainingTime))s remaining...")
+                    let iterationStartTimeForThisDepth = CFAbsoluteTimeGetCurrent()
+
+                    let moveFoundAtThisDepth = self.findBestMove(
+                        currentBoard: currentBoardState,
+                        depth: currentIterativeDepth, // This is the depth for the current iteration
+                        calculationID: calculationID,
+                        timeLimitForThisIteration: remainingTime, // Pass remaining time budget
+                        iterationStartTime: iterationStartTimeForThisDepth
+                    )
+
+                    let iterationTimeTaken = CFAbsoluteTimeGetCurrent() - iterationStartTimeForThisDepth
+
+                    if self.aiShouldCancelMove || self.aiCalculationTurnID != calculationID {
+                        print("AI Hard (Iterative): Calculation cancelled or turn ID mismatch after depth \(currentIterativeDepth) search.")
+                        break
+                    }
+
+                    if let move = moveFoundAtThisDepth {
+                        bestMoveFromCompletedDepth = move // Store the move from this successfully completed depth
+                        searchDepthAchieved = currentIterativeDepth
+                        print("AI Hard (Iterative): Depth \(currentIterativeDepth) completed in \(String(format: "%.3f", iterationTimeTaken))s. Best move for this depth: \(move)")
+                    } else {
+                        print("AI Hard (Iterative): Depth \(currentIterativeDepth) search returned no move (likely timed out or cancelled within findBestMove). Will use previous depth's result if available.")
+                        // If a shallower depth timed out, deeper depths will too.
+                        break
+                    }
+                } // End iterative deepening loop
+
+                let totalSearchTime = CFAbsoluteTimeGetCurrent() - overallStartTime
+                print("AI Hard (Iterative): Total search time: \(String(format: "%.3f", totalSearchTime))s. Achieved depth: \(searchDepthAchieved).")
+
+                DispatchQueue.main.async {
+                    guard self.aiCalculationTurnID == calculationID, !self.aiShouldCancelMove else {
+                        print("AI Hard (Iterative): Final result ignored, turn ID mismatch or cancelled.")
+                        return
+                    }
+                    guard !self.gameOver && self.isAiTurn else {
+                         print("AI Hard (Iterative): Game state changed during calculation. Aborting move placement.")
+                         if !self.isAiTurn { self.view.isUserInteractionEnabled = true }
+                         return
+                     }
+
+                    if let finalMoveToMake = bestMoveFromCompletedDepth {
+                        print("AI Hard (Iterative): Applying best move \(finalMoveToMake) from deepest completed search (depth \(searchDepthAchieved)).")
+                        self.placeAiPieceAndEndTurn(at: finalMoveToMake)
+                    } else {
+                        print("AI Hard (Iterative): Iterative deepening returned no move (even depth 1 failed or was cancelled immediately)! Falling back to a random adjacent or first empty cell.")
+                        // Fallback: very basic move if IDS fails completely
+                        let fallbackMove = self.findAdjacentEmptyCells(on: currentBoardState).randomElement() ?? emptyCellsOnBoard.first
+                        if let move = fallbackMove {
+                            self.placeAiPieceAndEndTurn(at: move)
+                        } else {
+                            print("AI Hard (Iterative): Catastrophic failure - no moves available for fallback.")
+                            // UI should already be enabled or game over
+                        }
+                    }
+                }
+            }
+
+            DispatchQueue.main.async {
+                 print("AI Hard (Iterative): Re-enabling UI for Reset/Menu while thinking.")
+                 self.view.isUserInteractionEnabled = true
             }
         }
 
-        print("AI Hard (Minimax): Evaluating moves with depth \(MAX_DEPTH)...")
-
-        // --- Find Best Move using Minimax ---
-        if let bestMove = findBestMove(currentBoard: board, depth: MAX_DEPTH) {
-            print("AI Hard (Minimax): Chose move \(bestMove)")
-            placeAiPieceAndEndTurn(at: bestMove)
-        } else {
-            // Fallback if minimax fails (shouldn't happen if empty cells exist)
-            print("AI Hard (Minimax): Minimax failed to find a move! Falling back to Standard AI.")
-            performStandardAiMove()
+    // --- REVISED: Minimax Initiator (findBestMove) with Time Limit Awareness ---
+    func findBestMove(currentBoard: [[CellState]], depth: Int, calculationID: Int, timeLimitForThisIteration: TimeInterval, iterationStartTime: TimeInterval) -> Position? {
+        if aiShouldCancelMove || self.aiCalculationTurnID != calculationID || timeLimitForThisIteration <= 0 {
+            // print("findBestMove (depth \(depth)) cancelled or no time before start. Time left: \(timeLimitForThisIteration)") // DEBUG
+            return nil
         }
-    }
-    
-    // --- NEW: Minimax Initiator ---
-    func findBestMove(currentBoard: [[CellState]], depth: Int) -> Position? {
+
         var bestScore = Int.min
-        var bestMove: Position? = nil
-        var alpha = Int.min // Renamed to avoid conflict
-        let beta = Int.max  // Renamed to avoid conflict
+        var bestMoves: [Position] = []
+        var alpha = Int.min
+        let beta = Int.max
 
-        // --- MODIFIED Move Generation: Prioritize adjacent cells ---
         let adjacentMoves = findAdjacentEmptyCells(on: currentBoard)
-        let candidateMoves: [Position]
-
-        if !adjacentMoves.isEmpty {
-            candidateMoves = adjacentMoves
-            print("AI considering \(candidateMoves.count) adjacent moves initially.")
-        } else {
-            // Fallback if NO adjacent moves exist (very rare early game)
-            candidateMoves = findEmptyCells(on: currentBoard)
-            print("AI Warning: No adjacent moves found, considering all \(candidateMoves.count) empty cells.")
-        }
-        // --- End Move Generation ---
-
+        var candidateMoves: [Position] = !adjacentMoves.isEmpty ? adjacentMoves : findEmptyCells(on: currentBoard)
         guard !candidateMoves.isEmpty else { return nil }
 
+        candidateMoves.sort { move1, move2 in
+            staticallyEvaluateMove(move: move1, for: aiPlayer, on: currentBoard) >
+            staticallyEvaluateMove(move: move2, for: aiPlayer, on: currentBoard)
+        }
+
         for move in candidateMoves {
+            if aiShouldCancelMove || self.aiCalculationTurnID != calculationID {
+                // print("findBestMove (depth \(depth)) cancelled during loop.") // DEBUG
+                return bestMoves.first // Return best found so far if any
+            }
+            if CFAbsoluteTimeGetCurrent() - iterationStartTime >= timeLimitForThisIteration {
+                // print("findBestMove (depth \(depth)): Time limit reached during move consideration. Returning current best.") // DEBUG
+                return bestMoves.first // Return best found so far
+            }
+
             var tempBoard = currentBoard
             tempBoard[move.row][move.col] = state(for: aiPlayer)
 
-            let score = minimax(board: tempBoard, depth: depth - 1, alpha: alpha, beta: beta, maximizingPlayer: false, currentPlayerToEvaluate: opponent(of: aiPlayer))
+            // Calculate remaining time for the recursive minimax call
+            let timeElapsedInFindBestMove = CFAbsoluteTimeGetCurrent() - iterationStartTime
+            let remainingTimeForMinimax = timeLimitForThisIteration - timeElapsedInFindBestMove
 
-            print("Move \(move) evaluated with score: \(score)")
+            let score = minimax(board: tempBoard,
+                                depth: depth - 1, // This is the *remaining* depth for the recursive call
+                                alpha: alpha, beta: beta,
+                                maximizingPlayer: false,
+                                currentPlayerToEvaluate: opponent(of: aiPlayer),
+                                calculationID: calculationID,
+                                timeLimitForThisMinimaxCall: remainingTimeForMinimax, // Pass remaining time
+                                iterationStartTime: iterationStartTime) // Keep original iteration start time for global check
+
+            if aiShouldCancelMove || self.aiCalculationTurnID != calculationID {
+                 // print("findBestMove (depth \(depth)) cancelled after minimax return.") // DEBUG
+                 return bestMoves.first
+            }
+            // Check if minimax returned a special "timeout/cancel" signal
+            if score == Int.min + 1 || score == Int.max - 1 { // Minimax timed out or was cancelled
+                // print("findBestMove (depth \(depth)): Minimax indicated timeout/cancellation. Stopping this depth.") // DEBUG
+                return bestMoves.first // Return what we have, or nil if nothing yet for this depth
+            }
 
             if score > bestScore {
                 bestScore = score
-                bestMove = move
-                alpha = max(alpha, bestScore) // Update alpha for the maximizing level
+                bestMoves = [move]
+                alpha = max(alpha, bestScore)
+            } else if score == bestScore {
+                bestMoves.append(move)
             }
-            
-            // Early exit if a winning move is found (alpha reaches WIN_SCORE)
+
             if alpha >= WIN_SCORE {
-                 print("Found winning move sequence early during alpha update.")
-                 return bestMove // Return the winning move
+                 return bestMoves.first
             }
-            // No beta cutoff here at the top level
-
-        } // End loop through candidate moves
-
-        if bestMove == nil && !candidateMoves.isEmpty {
-            print("Warning: Minimax completed but no best move found? Defaulting to first candidate.")
-            bestMove = candidateMoves.first // Failsafe
         }
 
-        print("Best move found: \(bestMove ?? Position(row: -1, col:-1)) with score: \(bestScore)")
-        return bestMove
+        if aiShouldCancelMove || self.aiCalculationTurnID != calculationID {
+             return bestMoves.first
+        }
+        // Check time one last time before complex tie-breaking
+        if CFAbsoluteTimeGetCurrent() - iterationStartTime >= timeLimitForThisIteration && !bestMoves.isEmpty {
+             // print("findBestMove (depth \(depth)): Time limit reached just before returning. Using current best from tied moves.") // DEBUG
+             // Fall through to tie-breaking, but it might be cut short if tie-breaking is slow.
+             // For simplicity, if time is up, just return the first of the bestMoves.
+             return bestMoves.first
+        }
+
+        var finalMove: Position?
+        if bestMoves.isEmpty {
+            // This could happen if all moves timed out immediately or were cancelled.
+            // Or if candidateMoves was empty initially (though guarded).
+            // print("Warning: findBestMove (depth \(depth)) resulted in empty bestMoves. Candidates: \(candidateMoves.count)") // DEBUG
+            finalMove = candidateMoves.first // A desperate fallback
+        } else if bestMoves.count == 1 {
+            finalMove = bestMoves.first
+        } else {
+            // Apply the enhanced tie-breaking from previous version
+            finalMove = bestMoves.sorted { move1, move2 in
+                let opponentPlayer = opponent(of: aiPlayer)
+                let m1_blocksWin = checkPotentialWin(player: opponentPlayer, position: move1, on: currentBoard)
+                let m2_blocksWin = checkPotentialWin(player: opponentPlayer, position: move2, on: currentBoard)
+                if m1_blocksWin != m2_blocksWin { return m1_blocksWin }
+
+                let m1_blocksO4 = checkPotentialThreat(player: opponentPlayer, threat: .openFour, position: move1, on: currentBoard)
+                let m2_blocksO4 = checkPotentialThreat(player: opponentPlayer, threat: .openFour, position: move2, on: currentBoard)
+                if m1_blocksO4 != m2_blocksO4 { return m1_blocksO4 }
+
+                let m1_blocksO3 = checkPotentialThreat(player: opponentPlayer, threat: .openThree, position: move1, on: currentBoard)
+                let m2_blocksO3 = checkPotentialThreat(player: opponentPlayer, threat: .openThree, position: move2, on: currentBoard)
+                if m1_blocksO3 != m2_blocksO3 { return m1_blocksO3 }
+
+                let score1_defensive = evaluateDefensiveTieBreak(move: move1, on: currentBoard, lastPlayerMove: nil)
+                let score2_defensive = evaluateDefensiveTieBreak(move: move2, on: currentBoard, lastPlayerMove: nil)
+                return score1_defensive > score2_defensive
+            }.first
+        }
+        return finalMove
+    }
+
+
+    // `evaluateDefensiveTieBreak` remains the same as your V7/last version.
+    // `staticallyEvaluateMove` also remains the same as your V7/last version (used for initial sort).
+
+    // --- NEW: Helper for Defensive Tie-Breaking ---
+    func evaluateDefensiveTieBreak(move: Position, on board: [[CellState]], lastPlayerMove: Position?) -> Int {
+        var score = 0
+        let center = boardSize / 2
+
+        // 1. Proximity to center (higher score for closer)
+        let distFromCenter = abs(move.row - center) + abs(move.col - center)
+        score += (center * 2 - distFromCenter) * 10 // Max ~140. Multiplied to give it more weight than adjacency.
+
+        // 2. Adjacency to ANY piece (encourages connected play)
+        if isAdjacentToAnyPiece(position: move, on: board) {
+            score += 50 // A decent bonus for being connected
+        }
+
+        // 3. Penalty for being too far from *all* existing pieces (discourage very isolated moves)
+        var minDistanceToPiece = boardSize * 2 // Initialize with a large value
+        var pieceFound = false
+        for r in 0..<boardSize {
+            for c in 0..<boardSize {
+                if board[r][c] != .empty {
+                    pieceFound = true
+                    let dist = abs(move.row - r) + abs(move.col - c)
+                    minDistanceToPiece = min(minDistanceToPiece, dist)
+                }
+            }
+        }
+        if pieceFound { // Only apply penalty if there are pieces on board
+             // Higher distance = lower score (more penalty)
+             // Max distance could be around boardSize.
+             // Let's say penalty increases for distances > 2 or 3
+            if minDistanceToPiece > 2 { // If the closest piece is more than 2 units away
+                score -= (minDistanceToPiece - 2) * 20 // Penalty grows with distance
+            }
+        }
+
+
+        // 4. Avoid immediately creating an opponent's open three (if this move allows it)
+        //    Make a temporary board to check this.
+        var tempBoard = board
+        tempBoard[move.row][move.col] = state(for: aiPlayer) // Assume AI is making this move
+        if findMovesCreatingThreat(on: tempBoard, for: opponent(of: aiPlayer), threat: .openThree, emptyCells: [move]).isEmpty {
+            // Good: This move *doesn't* immediately allow opponent to make an open three *at this spot*.
+            // This check is a bit simplistic as opponent can make O3 elsewhere.
+            // A more robust check would be: after AI plays 'move', can opponent make O3 *anywhere*?
+            // For now, let's check if placing AI's piece at 'move' then allows opponent to make O3 by playing *next* to it or completing one.
+            // This is tricky to get right without a deeper look.
+            // The `staticallyEvaluateMove` already has a penalty for this, so maybe this is redundant or needs to be more specific.
+        } else {
+            // This specific move, if AI takes it, allows opponent to form an Open Three by playing *at this very spot*
+            // This shouldn't happen if the spot is empty, so this check might be flawed.
+            // Let's re-think: if AI plays at 'move', does it enable an opponent's O3 *anywhere* on their next turn?
+            // This is essentially what `evaluateBoard` does with `LOSE_SCORE + 10` or `-(SCORE_OPEN_THREE * 10)`.
+            // So, the minimax score should already reflect this.
+            // Perhaps we just rely on the center/adjacency for this defensive tie-break.
+        }
+
+
+        // print("Defensive Tie Break for \(move): \(score)") // DEBUG
+        return score
     }
     
-    // --- NEW: Minimax with Alpha-Beta Pruning ---
-    func minimax(board currentBoard: [[CellState]], depth: Int, alpha currentAlpha: Int, beta currentBeta: Int, maximizingPlayer: Bool, currentPlayerToEvaluate: Player) -> Int {
+    // --- REVISED: Minimax with Alpha-Beta Pruning & Time Limit Awareness ---
+    func minimax(board currentBoard: [[CellState]], depth: Int, alpha currentAlpha: Int, beta currentBeta: Int, maximizingPlayer: Bool, currentPlayerToEvaluate: Player, calculationID: Int, timeLimitForThisMinimaxCall: TimeInterval, iterationStartTime: TimeInterval) -> Int {
+        // --- Cancellation & Overall Time Check (based on iterationStartTime) ---
+        if aiShouldCancelMove || self.aiCalculationTurnID != calculationID {
+            return maximizingPlayer ? (Int.min + 1) : (Int.max - 1) // Special signal for cancellation
+        }
+        // Check against the original start time of the *entire findBestMove iteration*
+        if CFAbsoluteTimeGetCurrent() - iterationStartTime >= timeLimitForThisMinimaxCall { // Check against the overall budget for this findBestMove call
+            // print("Minimax (depth \(depth)): Global time limit for iteration reached.") // DEBUG
+            return maximizingPlayer ? (Int.min + 1) : (Int.max - 1) // Special signal for timeout
+        }
 
-         var alpha = currentAlpha
-         var beta = currentBeta
+        var alpha = currentAlpha
+        var beta = currentBeta
 
-         // --- Base Cases ---
-         let winner = checkForWinner(on: currentBoard)
-         if winner == state(for: aiPlayer) { return WIN_SCORE }
-         if winner == state(for: opponent(of: aiPlayer)) { return LOSE_SCORE }
-         let emptyCells = findEmptyCells(on: currentBoard) // Still need all for draw check
-         if emptyCells.isEmpty { return DRAW_SCORE }
-         if depth == 0 { return evaluateBoard(board: currentBoard, playerMaximizing: aiPlayer) }
-         // --- End Base Cases ---
+        let winnerState = checkForWinner(on: currentBoard)
+        if winnerState == state(for: aiPlayer) { return WIN_SCORE }
+        if winnerState == state(for: opponent(of: aiPlayer)) { return LOSE_SCORE }
 
-         // --- MODIFIED Move Generation (Inside Minimax) ---
-         let adjacentMoves = findAdjacentEmptyCells(on: currentBoard)
-         let candidateMoves: [Position]
+        let emptyCells = findEmptyCells(on: currentBoard)
+        if emptyCells.isEmpty { return DRAW_SCORE }
+        if depth == 0 { return evaluateBoard(board: currentBoard, playerMaximizing: aiPlayer) }
 
-         if !adjacentMoves.isEmpty {
-             candidateMoves = adjacentMoves
-             // print("Depth \(depth): Considering \(candidateMoves.count) adjacent moves.") // DEBUG: Can be very verbose
-         } else {
-             // Fallback if no adjacent moves (e.g., opponent surrounded everything)
-             candidateMoves = emptyCells // Use all empty if no adjacent
-             // print("Depth \(depth): Warning: No adjacent moves found, considering all \(candidateMoves.count) empty.") // DEBUG
-         }
-         // --- End Move Generation ---
+        let adjacentMoves = findAdjacentEmptyCells(on: currentBoard)
+        var candidateMoves: [Position] = !adjacentMoves.isEmpty ? adjacentMoves : emptyCells
+        guard !candidateMoves.isEmpty else { return DRAW_SCORE }
 
+        candidateMoves.sort { move1, move2 in
+            staticallyEvaluateMove(move: move1, for: currentPlayerToEvaluate, on: currentBoard) >
+            staticallyEvaluateMove(move: move2, for: currentPlayerToEvaluate, on: currentBoard)
+        }
 
-         if maximizingPlayer { // AI's turn (Maximize score)
-             var maxEval = Int.min
-             for move in candidateMoves {
-                 var tempBoard = currentBoard
-                 tempBoard[move.row][move.col] = state(for: currentPlayerToEvaluate)
+        if maximizingPlayer {
+            var maxEval = Int.min
+            for move in candidateMoves {
+                // Re-check time and cancellation before processing each move
+                if aiShouldCancelMove || self.aiCalculationTurnID != calculationID || (CFAbsoluteTimeGetCurrent() - iterationStartTime >= timeLimitForThisMinimaxCall) {
+                    return Int.min + 1 // Signal timeout/cancel
+                }
+                var tempBoard = currentBoard
+                tempBoard[move.row][move.col] = state(for: currentPlayerToEvaluate)
+                if checkForWinOnBoard(boardToCheck: tempBoard, playerState: tempBoard[move.row][move.col], lastRow: move.row, lastCol: move.col) {
+                    return WIN_SCORE // Immediate win found
+                }
 
-                 let eval = minimax(board: tempBoard, depth: depth - 1, alpha: alpha, beta: beta, maximizingPlayer: false, currentPlayerToEvaluate: opponent(of: currentPlayerToEvaluate))
+                let timeElapsedInMinimax = CFAbsoluteTimeGetCurrent() - iterationStartTime
+                let remainingTimeForRecursiveCall = timeLimitForThisMinimaxCall - timeElapsedInMinimax
 
-                 maxEval = max(maxEval, eval)
-                 alpha = max(alpha, eval)
-                 if beta <= alpha {
-                     // print("Depth \(depth) (Max): Beta cutoff! (\(beta) <= \(alpha))") // DEBUG
-                     break // Beta cut-off
-                 }
-             }
-             return maxEval
-         } else { // Opponent's turn (Minimize score)
-             var minEval = Int.max
-             for move in candidateMoves {
-                 var tempBoard = currentBoard
-                 tempBoard[move.row][move.col] = state(for: currentPlayerToEvaluate)
+                let eval = minimax(board: tempBoard, depth: depth - 1, alpha: alpha, beta: beta, maximizingPlayer: false, currentPlayerToEvaluate: opponent(of: currentPlayerToEvaluate), calculationID: calculationID, timeLimitForThisMinimaxCall: remainingTimeForRecursiveCall, iterationStartTime: iterationStartTime)
+                
+                if eval == (Int.max - 1) { // Opponent's minimax call timed out/cancelled
+                    return Int.min + 1 // Propagate timeout/cancel signal upwards
+                }
 
-                 let eval = minimax(board: tempBoard, depth: depth - 1, alpha: alpha, beta: beta, maximizingPlayer: true, currentPlayerToEvaluate: opponent(of: currentPlayerToEvaluate))
+                maxEval = max(maxEval, eval)
+                alpha = max(alpha, eval)
+                if beta <= alpha { break }
+            }
+            return maxEval
+        } else { // Minimizing player
+            var minEval = Int.max
+            for move in candidateMoves {
+                if aiShouldCancelMove || self.aiCalculationTurnID != calculationID || (CFAbsoluteTimeGetCurrent() - iterationStartTime >= timeLimitForThisMinimaxCall) {
+                    return Int.max - 1 // Signal timeout/cancel
+                }
+                var tempBoard = currentBoard
+                tempBoard[move.row][move.col] = state(for: currentPlayerToEvaluate)
+                if checkForWinOnBoard(boardToCheck: tempBoard, playerState: tempBoard[move.row][move.col], lastRow: move.row, lastCol: move.col) {
+                    return LOSE_SCORE // Immediate loss found
+                }
 
-                 minEval = min(minEval, eval)
-                 beta = min(beta, eval)
-                 if beta <= alpha {
-                     // print("Depth \(depth) (Min): Alpha cutoff! (\(beta) <= \(alpha))") // DEBUG
-                     break // Alpha cut-off
-                 }
-             }
-             return minEval
-         }
-     }
+                let timeElapsedInMinimax = CFAbsoluteTimeGetCurrent() - iterationStartTime
+                let remainingTimeForRecursiveCall = timeLimitForThisMinimaxCall - timeElapsedInMinimax
+
+                let eval = minimax(board: tempBoard, depth: depth - 1, alpha: alpha, beta: beta, maximizingPlayer: true, currentPlayerToEvaluate: opponent(of: currentPlayerToEvaluate), calculationID: calculationID, timeLimitForThisMinimaxCall: remainingTimeForRecursiveCall, iterationStartTime: iterationStartTime)
+
+                if eval == (Int.min + 1) { // AI's minimax call timed out/cancelled
+                    return Int.max - 1 // Propagate timeout/cancel signal upwards
+                }
+
+                minEval = min(minEval, eval)
+                beta = min(beta, eval)
+                if beta <= alpha { break }
+            }
+            return minEval
+        }
+    }
+
     
-    // --- NEW: Board Evaluation Heuristic ---
+    // --- REVISED: Board Evaluation Heuristic ---
     func evaluateBoard(board: [[CellState]], playerMaximizing: Player) -> Int {
-        // Check for terminal state first (should be caught by minimax base case, but safe)
-        if checkForWinner(on: board) == state(for: playerMaximizing) { return WIN_SCORE }
-        if checkForWinner(on: board) == state(for: opponent(of: playerMaximizing)) { return LOSE_SCORE }
-        if findEmptyCells(on: board).isEmpty { return DRAW_SCORE }
+        let playerMinimizing = opponent(of: playerMaximizing)
+        let aiState = state(for: playerMaximizing)
+        let humanState = state(for: playerMinimizing)
 
-        var totalScore = 0
-        let lines = getAllLines(on: board) // Get all rows, cols, diagonals
+        // Check 1: Terminal State (Win/Loss/Draw)
+        let winner = checkForWinner(on: board)
+        if winner == aiState { return WIN_SCORE }
+        if winner == humanState { return LOSE_SCORE }
+        let emptyCells = findEmptyCells(on: board)
+        if emptyCells.isEmpty { return DRAW_SCORE }
+
+        // --- Check 2: IMMINENT OPPONENT THREATS (Highest Priority Penalty) ---
+        // Does the MINIMIZING player (Human) have a critical threat on THIS board?
+        // Check for Open Four first, as it's more severe than Open Three
+        let humanOpenFourMoves = findMovesCreatingThreat(on: board, for: playerMinimizing, threat: .openFour, emptyCells: emptyCells)
+        if !humanOpenFourMoves.isEmpty {
+            // If human has an OPEN four, this state is immediately losing or near-losing for AI.
+            // print("DEBUG Eval: Human has OPEN four threat -> VERY HIGH PENALTY")
+            // Return a score slightly better than losing immediately, but worse than almost anything else.
+            return LOSE_SCORE + 10 // Penalty significantly worse than creating own threats
+        }
+
+        // Check for Human immediate win threat (Five-in-a-row)
+        let humanWinMoves = findMovesCreatingThreat(on: board, for: playerMinimizing, threat: .five, emptyCells: emptyCells)
+         if !humanWinMoves.isEmpty {
+             // Should be caught by checkForWinner, but as a fallback evaluation penalty
+             // print("DEBUG Eval: Human has WIN threat -> LOSE_SCORE")
+             return LOSE_SCORE + 5
+         }
+
+        // Check for Human Open Three Threat (Still very dangerous)
+        let humanOpenThreeMoves = findMovesCreatingThreat(on: board, for: playerMinimizing, threat: .openThree, emptyCells: emptyCells)
+        if !humanOpenThreeMoves.isEmpty {
+            // Give a large, fixed penalty if an Open Three for the opponent exists *on this board*
+             // print("DEBUG Eval: Human has OPEN three threat -> LARGE PENALTY")
+            // This score should be worse than making own Open Three, but better than letting opponent make Open Four
+            return -(SCORE_OPEN_THREE * 10) // e.g., -80000
+        }
+
+        // --- Check 3: IMMINENT AI THREATS (Highest Priority Bonus) ---
+        // Does the MAXIMIZING player (AI) have a critical threat on THIS board?
+         let aiOpenFourMoves = findMovesCreatingThreat(on: board, for: playerMaximizing, threat: .openFour, emptyCells: emptyCells)
+         if !aiOpenFourMoves.isEmpty {
+             // If AI has an open four, this state is extremely good
+             // print("DEBUG Eval: AI has OPEN four threat -> HIGH BONUS")
+             return SCORE_OPEN_FOUR * 2 // Return large bonus immediately
+         }
+         // Check for AI immediate win threat (Five-in-a-row)
+         let aiWinMoves = findMovesCreatingThreat(on: board, for: playerMaximizing, threat: .five, emptyCells: emptyCells)
+          if !aiWinMoves.isEmpty {
+               // print("DEBUG Eval: AI has WIN threat -> WIN_SCORE")
+              return WIN_SCORE - 5 // Should be caught by checkForWinner, but included for completeness
+          }
+         // Check for AI Open Three
+         let aiOpenThreeMoves = findMovesCreatingThreat(on: board, for: playerMaximizing, threat: .openThree, emptyCells: emptyCells)
+          let aiHasOpenThree = !aiOpenThreeMoves.isEmpty // Flag if AI has one
+
+        // --- Check 4: General Line Evaluation (If no immediate critical threats detected above) ---
+        var aiScore = 0
+        var humanScore = 0
+        let lines = getAllLines(on: board)
 
         for line in lines {
-            totalScore += evaluateLine(line: line, for: playerMaximizing)
-            totalScore -= evaluateLine(line: line, for: opponent(of: playerMaximizing)) // Subtract opponent's score
+            // Evaluate based on minor patterns (Closed Fours, Closed Threes, Twos)
+            aiScore += evaluateLineForMinorThreats(line: line, for: playerMaximizing)
+            humanScore += evaluateLineForMinorThreats(line: line, for: playerMinimizing)
+        }
+
+        // Basic positional score difference
+        var totalScore = aiScore - humanScore // Remove multiplier for minor threats for now
+
+        // Add a bonus if AI had an Open Three (since we didn't return early for it)
+        if aiHasOpenThree {
+             // print("DEBUG Eval: Adding AI Open Three Bonus to positional score")
+            totalScore += SCORE_OPEN_THREE // Add the standard Open Three score
         }
 
         return totalScore
     }
 
-    // --- NEW: Helper to evaluate a single line ---
-    func evaluateLine(line: [CellState], for player: Player) -> Int {
+    // --- NEW Helper: Evaluate only minor threats for general scoring ---
+    func evaluateLineForMinorThreats(line: [CellState], for player: Player) -> Int {
         let playerState = state(for: player)
         let opponentState = state(for: opponent(of: player))
         var score = 0
         let n = line.count
 
-        // Iterate through windows of 5 and 6
         for i in 0...(n - 5) {
              let window5 = Array(line[i..<(i + 5)])
              var pCount = 0
@@ -1276,41 +1601,149 @@ class ViewController: UIViewController {
                   else if cell == .empty { eCount += 1 }
              }
 
-             // Check context for open/closed states
-            let stateBefore: CellState? = (i > 0) ? line[i-1] : opponentState // Treat edge as opponent
-            let stateAfter: CellState? = (i + 5 < n) ? line[i+5] : opponentState // Treat edge as opponent
+            // Ignore if opponent blocks the window
+             if window5.contains(opponentState) { continue }
+
+            let stateBefore: CellState? = (i > 0) ? line[i-1] : opponentState
+            let stateAfter: CellState? = (i + 5 < n) ? line[i+5] : opponentState
             let isOpenBefore = stateBefore == .empty
             let isOpenAfter = stateAfter == .empty
 
-            // --- Score based on patterns within window 5 ---
-            if pCount == 5 { score += WIN_SCORE / 10 } // Strongly weight near-wins found mid-eval
-            else if pCount == 4 && eCount == 1 {
-                 // Potential closed four or part of open four
-                 if isOpenBefore || isOpenAfter { score += SCORE_CLOSED_FOUR } // If at least one side is open, it's a closed four threat
-            } else if pCount == 3 && eCount == 2 {
-                 // Potential open or closed three
-                 if isOpenBefore && isOpenAfter { score += SCORE_OPEN_THREE } // Open three
-                 else if isOpenBefore || isOpenAfter { score += SCORE_CLOSED_THREE } // Closed three
-            } else if pCount == 2 && eCount == 3 {
-                // Potential open or closed two
+            // Score only CLOSED Fours, CLOSED Threes, and Twos here
+            if pCount == 4 && eCount == 1 { // PPPP_ or _PPPP etc.
+                 if isOpenBefore || isOpenAfter { score += SCORE_CLOSED_FOUR } // Only score if it's a closed four
+            } else if pCount == 3 && eCount == 2 { // PPP__ or _PPP_ etc.
+                 if isOpenBefore || isOpenAfter { // Exclude Open Three (handled separately)
+                      if !(isOpenBefore && isOpenAfter) { score += SCORE_CLOSED_THREE }
+                 }
+            } else if pCount == 2 && eCount == 3 { // PP___ etc.
                  if isOpenBefore && isOpenAfter { score += SCORE_OPEN_TWO }
                  else if isOpenBefore || isOpenAfter { score += SCORE_CLOSED_TWO }
             }
-
-             // --- Check specifically for Open Four (window 6) ---
-             if i <= (n - 6) {
-                  let window6 = Array(line[i..<(i + 6)])
-                  if window6[0] == .empty &&
-                     window6[1] == playerState &&
-                     window6[2] == playerState &&
-                     window6[3] == playerState &&
-                     window6[4] == playerState &&
-                     window6[5] == .empty {
-                       score += SCORE_OPEN_FOUR // Add score for open four
-                  }
-             }
         }
         return score
+    }
+    
+    // --- REVISED V6: Helper for Static Move Evaluation (Move Ordering + Threat Mitigation) ---
+    // Assigns a score for sorting moves, prioritizing critical actions.
+    // Higher score = higher priority in the search.
+    func staticallyEvaluateMove(move: Position, for player: Player, on boardToCheck: [[CellState]]) -> Int {
+        let opponent = self.opponent(of: player)
+        var score = 0
+        let center = boardSize / 2 // e.g., 7 for boardSize 15
+
+        // --- Priorities 1-10 (Revised) ---
+        // Use large, distinct values to ensure clear prioritization.
+
+        // 1. Immediate Win for 'player'? (MUST DO)
+        if checkPotentialWin(player: player, position: move, on: boardToCheck) {
+            return 100_000_000 // Highest priority
+        }
+
+        // 2. Immediate Block of opponent's win? (MUST DO)
+        if checkPotentialWin(player: opponent, position: move, on: boardToCheck) {
+            return 90_000_000 // Second highest
+        }
+
+        // 3. Create Open Four for 'player'?
+        var createsOpenFour = false
+        if checkPotentialThreat(player: player, threat: .openFour, position: move, on: boardToCheck) {
+            score += 70_000_000
+            createsOpenFour = true
+        }
+
+        // 4. Block opponent's Open Four?
+        if checkPotentialThreat(player: opponent, threat: .openFour, position: move, on: boardToCheck) {
+             score += createsOpenFour ? 5_000_000 : 80_000_000
+        }
+
+        // 5. Block opponent's Open Three? (Very important defense)
+        var blocksOpenThree = false
+        if checkPotentialThreat(player: opponent, threat: .openThree, position: move, on: boardToCheck) {
+             score += 6_000_000 // High value for blocking O3
+             blocksOpenThree = true
+        }
+
+        // 6. Create Open Three for 'player'?
+        if checkPotentialThreat(player: player, threat: .openThree, position: move, on: boardToCheck) {
+            score += blocksOpenThree ? 50_000 : 500_000 // Creating O3 << Blocking opponent's O3
+        }
+
+        // 7. Block opponent's Closed Four
+         if checkPotentialThreat(player: opponent, threat: .closedFour, position: move, on: boardToCheck) {
+             score += 40_000
+         }
+         // 8. Create own Closed Four
+          if checkPotentialThreat(player: player, threat: .closedFour, position: move, on: boardToCheck) {
+              score += 30_000
+          }
+        // 9. Block opponent's Closed Three
+         if checkPotentialThreat(player: opponent, threat: .closedThree, position: move, on: boardToCheck) {
+             score += 4_000
+         }
+        // 10. Create own Closed Three
+         if checkPotentialThreat(player: player, threat: .closedThree, position: move, on: boardToCheck) {
+              score += 3_000
+          }
+        // --- End Priorities 1-10 ---
+
+        // --- NEW: Tie-Breaking Heuristics (Applied only if score is still low) ---
+        if score < 1000 { // Only apply if no major tactical reason was found above
+            // Bonus for proximity to center (prefer center control)
+            let distFromCenter = abs(move.row - center) + abs(move.col - center)
+            score += (center * 2 - distFromCenter) // Max bonus = 14, Min bonus = 0
+
+            // --- NEW: Penalty for creating opponent's threats (if possible) ---
+            // This is the key change.  If the move *creates* an open three for the opponent,
+            // give it a *negative* score.  This is a *much* stronger penalty than the
+            // center proximity bonus.
+            if checkPotentialThreat(player: opponent, threat: .openThree, position: move, on: boardToCheck) {
+                score -= 2000 // Large penalty for creating an O3
+            }
+        }
+        // --- End Tie-Breaking ---
+
+        // Basic adjacency bonus (very low priority, applied AFTER proximity)
+        if isAdjacentToAnyPiece(position: move, on: boardToCheck) {
+            score += 1 // Minimal bonus, mainly helps if proximity is also tied
+        }
+
+        // print("Static Eval V6: \(move) final score = \(score)") // DEBUG
+        return score
+    }
+
+    // --- Keep `checkPotentialThreat` helper ---
+    func checkPotentialThreat(player: Player, threat: ThreatType, position: Position, on boardToCheck: [[CellState]]) -> Bool {
+        // ... (Keep the implementation from previous step) ...
+        guard checkBounds(row: position.row, col: position.col) &&
+              boardToCheck[position.row][position.col] == .empty else { return false }
+
+        var tempBoard = boardToCheck
+        tempBoard[position.row][position.col] = state(for: player)
+
+        return checkForThreatOnBoard(boardToCheck: tempBoard, player: player, threat: threat, lastMove: position)
+    }
+
+    // --- NEW Helper for Adjacency Bonus ---
+    func isAdjacentToAnyPiece(position: Position, on boardToCheck: [[CellState]]) -> Bool {
+         let directions = [(-1,-1), (-1,0), (-1,1), (0,-1), (0,1), (1,-1), (1,0), (1,1)]
+         for (dr, dc) in directions {
+             let nr = position.row + dr
+             let nc = position.col + dc
+             if checkBounds(row: nr, col: nc) && boardToCheck[nr][nc] != .empty {
+                 return true
+             }
+         }
+         return false
+    }
+    
+    // --- NEW Helper for small depth bias ---
+    // Returns a small value based on remaining depth to encourage faster wins/delayed losses
+    func depthBias() -> Int {
+        // This function needs access to the 'depth' variable from minimax.
+        // This requires refactoring minimax slightly or passing depth down.
+        // For simplicity *now*, let's return 0. We can add this later if needed.
+        return 0
     }
 
     // --- NEW: Helper to get all relevant lines ---
@@ -1327,7 +1760,16 @@ class ViewController: UIViewController {
     }
      enum ThreatType: Int { case five = 10000; case openFour = 5000; case closedFour = 450; case openThree = 400; case closedThree = 50 }
      func placeAiPieceAndEndTurn(at position: Position) { guard checkBounds(row: position.row, col: position.col) && board[position.row][position.col] == .empty else { print("!!! AI INTERNAL ERROR: placeAiPieceAndEndTurn called with invalid position \(position). Current: \(board[position.row][position.col])"); let recoveryMove = findEmptyCells(on: self.board).randomElement(); if let move = recoveryMove { print("!!! AI RECOVERY: Placing random piece at \(move) instead."); placePiece(atRow: move.row, col: move.col) } else { print("!!! AI RECOVERY FAILED: No empty cells left?"); view.isUserInteractionEnabled = true }; return }; placePiece(atRow: position.row, col: position.col) }
-     func checkPotentialWin(player: Player, position: Position) -> Bool { var tempBoard = self.board; guard checkBounds(row: position.row, col: position.col) && tempBoard[position.row][position.col] == .empty else { return false }; tempBoard[position.row][position.col] = state(for: player); return checkForWinOnBoard(boardToCheck: tempBoard, playerState: tempBoard[position.row][position.col], lastRow: position.row, lastCol: position.col) }
+    func checkPotentialWin(player: Player, position: Position, on boardToCheck: [[CellState]]) -> Bool {
+        var tempBoard = boardToCheck;
+        guard checkBounds(row: position.row, col: position.col) && tempBoard[position.row][position.col] == .empty else { return false };
+        tempBoard[position.row][position.col] = state(for: player);
+        return checkForWinOnBoard(boardToCheck: tempBoard, playerState: tempBoard[position.row][position.col], lastRow: position.row, lastCol: position.col)
+    }
+    // Keep original for easy/medium
+    func checkPotentialWin(player: Player, position: Position) -> Bool {
+        return checkPotentialWin(player: player, position: position, on: self.board)
+    }
      func checkForWinOnBoard(boardToCheck: [[CellState]], playerState: CellState, lastRow: Int, lastCol: Int) -> Bool { guard playerState != .empty else { return false }; let directions = [(0, 1), (1, 0), (1, 1), (1, -1)]; for (dr, dc) in directions { var count = 1; for i in 1..<5 { let r = lastRow + dr * i; let c = lastCol + dc * i; if checkBounds(row: r, col: c) && boardToCheck[r][c] == playerState { count += 1 } else { break } }; for i in 1..<5 { let r = lastRow - dr * i; let c = lastCol - dc * i; if checkBounds(row: r, col: c) && boardToCheck[r][c] == playerState { count += 1 } else { break } }; if count >= 5 { return true } }; return false }
     func findEmptyCells(on boardToCheck: [[CellState]]) -> [Position] {
         var emptyPositions: [Position] = []
@@ -1512,11 +1954,24 @@ class ViewController: UIViewController {
             sender.removeTarget(self, action: #selector(self.resetButtonReleased(_:)), for: .touchCancel)
         })
         if currentGameState == .playing {
-             print("Resetting game...")
-             setupNewGame()
-             if !isAiTurn { view.isUserInteractionEnabled = true }
-             // If AI starts, startGame handles it.
-        } else { print("Reset tapped while in setup state - doing nothing.") }
+             print("Resetting game... Requesting AI cancellation.")
+             aiShouldCancelMove = true // <-- SET FLAG HERE
+             // The minimax check below should cause the AI calc to stop soon
+
+             setupNewGame() // Reset board, player, etc.
+
+             // Re-enable interaction if it's now human's turn (should always be after reset)
+             if !isAiTurn {
+                 view.isUserInteractionEnabled = true
+                 print("Reset complete, interaction enabled for human.")
+             } else {
+                 // This case shouldn't happen if reset forces black's turn
+                 print("Reset complete, but it's still AI's turn? Enabling interaction as failsafe.")
+                 view.isUserInteractionEnabled = true
+             }
+        } else {
+             print("Reset tapped while in setup state - doing nothing.")
+        }
         sender.removeTarget(self, action: #selector(self.resetButtonReleased(_:)), for: .touchUpInside)
         sender.removeTarget(self, action: #selector(self.resetButtonReleased(_:)), for: .touchUpOutside)
         sender.removeTarget(self, action: #selector(self.resetButtonReleased(_:)), for: .touchCancel)
