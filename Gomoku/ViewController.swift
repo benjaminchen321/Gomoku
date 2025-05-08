@@ -80,6 +80,7 @@ class ViewController: UIViewController {
     private var lastMoveIndicatorLayer: CALayer?
     private var shakeAnimation: CABasicAnimation? // To create shake only once
     private var turnIndicatorView: UIView?
+    private var aiThinkingIndicatorView: UIView? // <-- NEW: AI Thinking Indicator View
 
     // --- Game Over Overlay UI Elements ---
     private let gameOverOverlayView = UIVisualEffectView()
@@ -87,6 +88,7 @@ class ViewController: UIViewController {
     private let playAgainButton = UIButton(type: .system)
     private let overlayMainMenuButton = UIButton(type: .system)
     private var gameOverUIElements: [UIView] = []
+    private let gameOverIconImageView = UIImageView() // <-- NEW: Icon for Game Over
 
     // --- Constraint Activation Flag ---
     private var constraintsActivated = false
@@ -96,8 +98,11 @@ class ViewController: UIViewController {
 
     // --- NEW: Audio & Haptic Properties ---
     private var audioPlayers: [String: AVAudioPlayer] = [:]
-    private let impactFeedbackGenerator = UIImpactFeedbackGenerator(style: .light) // For general taps
+    private let lightImpactFeedbackGenerator = UIImpactFeedbackGenerator(style: .light) // For general taps
+    private let mediumImpactFeedbackGenerator = UIImpactFeedbackGenerator(style: .medium) // For human piece placement
+    private let softImpactFeedbackGenerator = UIImpactFeedbackGenerator(style: .soft)   // For AI piece placement
     private let notificationFeedbackGenerator = UINotificationFeedbackGenerator() // For win/loss/error
+    private let impactFeedbackGenerator = UIImpactFeedbackGenerator(style: .light) // For general taps
 
     // --- Lifecycle Methods ---
     override func viewDidLoad() {
@@ -114,6 +119,7 @@ class ViewController: UIViewController {
         createSetupUI()
         createNewGameOverUI()
         setupTurnIndicatorView()
+        createAiThinkingIndicatorView()
         setupNewGameVariablesOnly()
         showSetupUI()
         print("viewDidLoad completed.")
@@ -224,7 +230,9 @@ class ViewController: UIViewController {
 
     // --- NEW: Haptic Setup ---
     func prepareHaptics() {
-        impactFeedbackGenerator.prepare()
+        lightImpactFeedbackGenerator.prepare()
+        mediumImpactFeedbackGenerator.prepare()
+        softImpactFeedbackGenerator.prepare()
         notificationFeedbackGenerator.prepare()
         print("Haptic generators prepared.")
     }
@@ -247,22 +255,99 @@ class ViewController: UIViewController {
         NSLayoutConstraint.activate([resetButton.bottomAnchor.constraint(equalTo: safeArea.bottomAnchor, constant: -30), resetButton.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor), resetButton.leadingAnchor.constraint(greaterThanOrEqualTo: safeArea.leadingAnchor, constant: 30), resetButton.trailingAnchor.constraint(lessThanOrEqualTo: safeArea.trailingAnchor, constant: -30)])
         print("Game element constraints activated.")
     }
-     func createSetupUI() {
+    // Update calls in createSetupUI:
+    func createSetupUI() {
         print("Creating Setup UI")
-        gameTitleLabel.translatesAutoresizingMaskIntoConstraints = false; gameTitleLabel.text = "Gomoku"; gameTitleLabel.font = UIFont.systemFont(ofSize: 48, weight: .bold); gameTitleLabel.textColor = UIColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1.0); gameTitleLabel.textAlignment = .center; gameTitleLabel.layer.shadowColor = UIColor.black.cgColor; gameTitleLabel.layer.shadowOffset = CGSize(width: 0, height: 2); gameTitleLabel.layer.shadowRadius = 4.0; gameTitleLabel.layer.shadowOpacity = 0.2; gameTitleLabel.layer.masksToBounds = false; view.addSubview(gameTitleLabel)
-        setupTitleLabel.translatesAutoresizingMaskIntoConstraints = false; setupTitleLabel.text = "Choose Game Mode"; setupTitleLabel.font = UIFont.systemFont(ofSize: 26, weight: .bold); setupTitleLabel.textColor = UIColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1.0); setupTitleLabel.textAlignment = .center; view.addSubview(setupTitleLabel)
-        startEasyAIButton.translatesAutoresizingMaskIntoConstraints = false; configureSetupButton(startEasyAIButton, color: UIColor(red: 0.8, green: 0.95, blue: 0.85, alpha: 1.0)); startEasyAIButton.setTitle("vs AI (Easy)", for: .normal); startEasyAIButton.addTarget(self, action: #selector(didTapSetupButton(_:)), for: .touchUpInside); view.addSubview(startEasyAIButton)
-        startMediumAIButton.translatesAutoresizingMaskIntoConstraints = false; configureSetupButton(startMediumAIButton, color: UIColor(red: 0.95, green: 0.9, blue: 0.75, alpha: 1.0)); startMediumAIButton.setTitle("vs AI (Medium)", for: .normal); startMediumAIButton.addTarget(self, action: #selector(didTapSetupButton(_:)), for: .touchUpInside); view.addSubview(startMediumAIButton)
-        startHardAIButton.translatesAutoresizingMaskIntoConstraints = false; configureSetupButton(startHardAIButton, color: UIColor(red: 0.95, green: 0.75, blue: 0.75, alpha: 1.0)); startHardAIButton.setTitle("vs AI (Hard)", for: .normal); startHardAIButton.addTarget(self, action: #selector(didTapSetupButton(_:)), for: .touchUpInside); view.addSubview(startHardAIButton)
-        startHvsHButton.translatesAutoresizingMaskIntoConstraints = false; configureSetupButton(startHvsHButton, color: UIColor(red: 0.85, green: 0.85, blue: 0.95, alpha: 1.0)); startHvsHButton.setTitle("Human vs Human", for: .normal); startHvsHButton.addTarget(self, action: #selector(didTapSetupButton(_:)), for: .touchUpInside); view.addSubview(startHvsHButton)
+        // gameTitleLabel
+        gameTitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        gameTitleLabel.text = "Gomoku"
+        gameTitleLabel.font = UIFont.systemFont(ofSize: 52, weight: .heavy) // Slightly larger and heavier for impact
+        gameTitleLabel.textColor = UIColor(red: 0.2, green: 0.2, blue: 0.2, alpha: 1.0) // Dark gray, not pure black
+        gameTitleLabel.textAlignment = .center
+        gameTitleLabel.layer.shadowColor = UIColor.black.cgColor
+        gameTitleLabel.layer.shadowOffset = CGSize(width: 0, height: 1.5) // NEW: Softer shadow offset
+        gameTitleLabel.layer.shadowRadius = 3.0 // NEW: Softer shadow radius
+        gameTitleLabel.layer.shadowOpacity = 0.15 // NEW: Softer shadow opacity
+        gameTitleLabel.layer.masksToBounds = false
+        view.addSubview(gameTitleLabel)
+
+        // setupTitleLabel
+        setupTitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        setupTitleLabel.text = "Choose Game Mode"
+        setupTitleLabel.font = UIFont.systemFont(ofSize: 24, weight: .medium) // NEW: Medium weight for less emphasis than main title
+        setupTitleLabel.textColor = UIColor(red: 0.3, green: 0.3, blue: 0.3, alpha: 0.9) // Slightly lighter text
+        setupTitleLabel.textAlignment = .center
+        // No shadow for subtitle to keep it cleaner
+        view.addSubview(setupTitleLabel)
+
+        startEasyAIButton.translatesAutoresizingMaskIntoConstraints = false
+        // configureSetupButton(startEasyAIButton, color: UIColor(red: 0.8, green: 0.95, blue: 0.85, alpha: 1.0)); // OLD
+        // startEasyAIButton.setTitle("vs AI (Easy)", for: .normal); // OLD
+        configureSetupButton(startEasyAIButton, title: "vs AI (Easy)", iconName: "brain.head.profile", color: UIColor(red: 0.82, green: 0.92, blue: 0.98, alpha: 1.0)) // Light Blueish
+        startEasyAIButton.addTarget(self, action: #selector(didTapSetupButton(_:)), for: .touchUpInside)
+        view.addSubview(startEasyAIButton)
+
+        startMediumAIButton.translatesAutoresizingMaskIntoConstraints = false
+        // configureSetupButton(startMediumAIButton, color: UIColor(red: 0.95, green: 0.9, blue: 0.75, alpha: 1.0)); // OLD
+        // startMediumAIButton.setTitle("vs AI (Medium)", for: .normal); // OLD
+        configureSetupButton(startMediumAIButton, title: "vs AI (Medium)", iconName: "brain.head.profile", color: UIColor(red: 0.80, green: 0.88, blue: 0.95, alpha: 1.0)) // Slightly darker blueish
+        startMediumAIButton.addTarget(self, action: #selector(didTapSetupButton(_:)), for: .touchUpInside)
+        view.addSubview(startMediumAIButton)
+
+        startHardAIButton.translatesAutoresizingMaskIntoConstraints = false
+        // configureSetupButton(startHardAIButton, color: UIColor(red: 0.95, green: 0.75, blue: 0.75, alpha: 1.0)); // OLD
+        // startHardAIButton.setTitle("vs AI (Hard)", for: .normal); // OLD
+        configureSetupButton(startHardAIButton, title: "vs AI (Hard)", iconName: "brain.head.profile", color: UIColor(red: 0.78, green: 0.85, blue: 0.92, alpha: 1.0)) // Even darker blueish
+        startHardAIButton.addTarget(self, action: #selector(didTapSetupButton(_:)), for: .touchUpInside)
+        view.addSubview(startHardAIButton)
+
+        startHvsHButton.translatesAutoresizingMaskIntoConstraints = false
+        // configureSetupButton(startHvsHButton, color: UIColor(red: 0.85, green: 0.85, blue: 0.95, alpha: 1.0)); // OLD
+        // startHvsHButton.setTitle("Human vs Human", for: .normal); // OLD
+        configureSetupButton(startHvsHButton, title: "Human vs Human", iconName: "person.2.fill", color: UIColor(red: 0.88, green: 0.88, blue: 0.88, alpha: 1.0)) // Light Gray
+        startHvsHButton.addTarget(self, action: #selector(didTapSetupButton(_:)), for: .touchUpInside)
+        view.addSubview(startHvsHButton)
+
         setupUIElements = [gameTitleLabel, setupTitleLabel, startEasyAIButton, startMediumAIButton, startHardAIButton, startHvsHButton]
     }
-    func configureSetupButton(_ button: UIButton, color: UIColor) {
-        button.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .semibold);
-        button.backgroundColor = color; button.setTitleColor(.darkText, for: .normal); button.layer.cornerRadius = 14
-        if #available(iOS 15.0, *) { var config = UIButton.Configuration.filled(); config.baseBackgroundColor = color; config.baseForegroundColor = .darkText; config.contentInsets = NSDirectionalEdgeInsets(top: 15, leading: 30, bottom: 15, trailing: 30); config.cornerStyle = .large; config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in var outgoing = incoming; outgoing.font = UIFont.systemFont(ofSize: 22, weight: .bold); return outgoing }; button.configuration = config }
-        else { button.contentEdgeInsets = UIEdgeInsets(top: 15, left: 30, bottom: 15, right: 30) }
-        button.layer.shadowColor = UIColor.black.cgColor; button.layer.shadowOffset = CGSize(width: 0, height: 1); button.layer.shadowRadius = 3; button.layer.shadowOpacity = 0.15; button.layer.masksToBounds = false
+
+    // Modify configureSetupButton
+    func configureSetupButton(_ button: UIButton, title: String, iconName: String?, color: UIColor) { // Added title and iconName
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .semibold)
+        button.backgroundColor = color // Fallback for older iOS
+        button.setTitleColor(.darkText, for: .normal) // Fallback
+        button.layer.cornerRadius = 14 // Fallback
+
+        if #available(iOS 15.0, *) {
+            var config = UIButton.Configuration.filled()
+            config.title = title
+            if let iconName = iconName, let icon = UIImage(systemName: iconName) {
+                config.image = icon
+                config.imagePadding = 10
+                config.imagePlacement = .leading
+            }
+            config.baseBackgroundColor = color
+            config.baseForegroundColor = UIColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 0.9) // Slightly less harsh than pure darkText
+            config.contentInsets = NSDirectionalEdgeInsets(top: 15, leading: 25, bottom: 15, trailing: 25) // Adjusted padding
+            config.cornerStyle = .large
+            config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+                var outgoing = incoming
+                outgoing.font = UIFont.systemFont(ofSize: 20, weight: .semibold) // Slightly smaller font for setup buttons
+                return outgoing
+            }
+            button.configuration = config
+        } else {
+            button.setTitle(title, for: .normal)
+            // Manual icon adding for < iOS 15 would be more complex, let's assume iOS 15+ for icons via config.
+            // If not, we might need to create a custom UIView for the button content.
+            button.contentEdgeInsets = UIEdgeInsets(top: 15, left: 30, bottom: 15, right: 30)
+        }
+
+        button.layer.shadowColor = UIColor.black.cgColor
+        button.layer.shadowOffset = CGSize(width: 0, height: 2) // Slightly larger shadow offset
+        button.layer.shadowRadius = 4 // Slightly larger shadow radius
+        button.layer.shadowOpacity = 0.12 // Slightly less opacity for a softer shadow
+        button.layer.masksToBounds = false
     }
      func setupSetupUIConstraints() { /* ... no changes needed here ... */
          print("Setting up Setup UI constraints (V4 - With Hard Button)")
@@ -282,15 +367,167 @@ class ViewController: UIViewController {
         if !targetConstraints.isEmpty { NSLayoutConstraint.activate(targetConstraints); currentSetupConstraints = targetConstraints }
         else { print("Warning: Target constraint set is empty for \(isLandscape ? "Landscape" : "Portrait")."); currentSetupConstraints = [] }
     }
-    func createMainMenuButton() { /* ... no changes needed here ... */ print("Creating Main Menu Button"); mainMenuButton.translatesAutoresizingMaskIntoConstraints = false; if #available(iOS 15.0, *) { var config = UIButton.Configuration.plain(); config.title = "‹ Menu"; config.titleAlignment = .leading; config.baseForegroundColor = UIColor.systemBlue; config.contentInsets = NSDirectionalEdgeInsets(top: 5, leading: 0, bottom: 5, trailing: 10); mainMenuButton.configuration = config } else { mainMenuButton.setTitle("‹ Menu", for: .normal); mainMenuButton.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .medium); mainMenuButton.setTitleColor(UIColor.systemBlue, for: .normal); mainMenuButton.contentEdgeInsets = UIEdgeInsets(top: 5, left: 0, bottom: 5, right: 10) }; mainMenuButton.backgroundColor = .clear; mainMenuButton.addTarget(self, action: #selector(didTapMenuButton), for: .touchUpInside); mainMenuButton.isHidden = true; view.addSubview(mainMenuButton) }
+    // --- NEW: AI Thinking Indicator Setup ---
+    func createAiThinkingIndicatorView() {
+        let indicatorSize: CGFloat = 16 // Size of the indicator circle
+        let indicator = UIView()
+        indicator.translatesAutoresizingMaskIntoConstraints = false
+        indicator.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.7) // Example color
+        indicator.layer.cornerRadius = indicatorSize / 2
+        indicator.isHidden = true // Start hidden
+        indicator.alpha = 0.0 // Start invisible for fade-in
+        view.addSubview(indicator)
+        self.aiThinkingIndicatorView = indicator
+
+        // Constraints (centered below status label)
+        guard let statusLabel = statusLabel else { return }
+        NSLayoutConstraint.activate([
+            indicator.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 8), // Below status label
+            indicator.centerXAnchor.constraint(equalTo: statusLabel.centerXAnchor), // Centered horizontally with status label
+            indicator.widthAnchor.constraint(equalToConstant: indicatorSize),
+            indicator.heightAnchor.constraint(equalToConstant: indicatorSize)
+        ])
+        print("AI thinking indicator view created.")
+    }
+    func createMainMenuButton() { /* ... no changes needed here ... */
+        print("Creating Main Menu Button");
+        mainMenuButton.translatesAutoresizingMaskIntoConstraints = false;
+        if #available(iOS 15.0, *) {
+            var config = UIButton.Configuration.plain();
+            config.title = "‹ Menu";
+            config.titleAlignment = .leading;
+            config.baseForegroundColor = UIColor.systemGray;
+            config.attributedTitle?.font = UIFont.systemFont(ofSize: 17, weight: .medium);
+            config.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 10) // Slightly more vertical padding
+            mainMenuButton.configuration = config
+        } else {
+            mainMenuButton.setTitle("‹ Menu", for: .normal)
+            mainMenuButton.titleLabel?.font = UIFont.systemFont(ofSize: 17, weight: .medium) // Explicit font
+            mainMenuButton.setTitleColor(UIColor.systemGray, for: .normal) // CHANGED
+            mainMenuButton.contentEdgeInsets = UIEdgeInsets(top: 8, left: 0, bottom: 8, right: 10) // Slightly more vertical padding
+        };
+        mainMenuButton.backgroundColor = .clear;
+        mainMenuButton.addTarget(self, action: #selector(didTapMenuButton), for: .touchUpInside); mainMenuButton.isHidden = true; view.addSubview(mainMenuButton) }
     func setupMainMenuButtonConstraints() { /* ... no changes needed here ... */ print("Setting up Main Menu Button constraints"); let safeArea = view.safeAreaLayoutGuide; NSLayoutConstraint.activate([ mainMenuButton.topAnchor.constraint(equalTo: safeArea.topAnchor, constant: 15), mainMenuButton.leadingAnchor.constraint(equalTo: safeArea.leadingAnchor, constant: 20) ]) }
-    func createNewGameOverUI() { /* ... no changes needed here ... */ print("Creating Game Over UI with Blur"); gameOverOverlayView.translatesAutoresizingMaskIntoConstraints = false; gameOverOverlayView.effect = UIBlurEffect(style: .systemMaterialDark); gameOverOverlayView.layer.cornerRadius = 15; gameOverOverlayView.layer.masksToBounds = true; gameOverOverlayView.isHidden = true; gameOverOverlayView.contentView.addSubview(gameOverStatusLabel); gameOverOverlayView.contentView.addSubview(playAgainButton); gameOverOverlayView.contentView.addSubview(overlayMainMenuButton); view.addSubview(gameOverOverlayView); gameOverStatusLabel.translatesAutoresizingMaskIntoConstraints = false; gameOverStatusLabel.font = UIFont.systemFont(ofSize: 32, weight: .bold); gameOverStatusLabel.textColor = .white; gameOverStatusLabel.textAlignment = .center; gameOverStatusLabel.numberOfLines = 0; playAgainButton.translatesAutoresizingMaskIntoConstraints = false; configureGameOverButton(playAgainButton, title: "Play Again", color: UIColor.systemGreen.withAlphaComponent(0.8)); playAgainButton.addTarget(self, action: #selector(didTapGameOverButton(_:)), for: .touchUpInside); overlayMainMenuButton.translatesAutoresizingMaskIntoConstraints = false; configureGameOverButton(overlayMainMenuButton, title: "Main Menu", color: UIColor.systemBlue.withAlphaComponent(0.8)); overlayMainMenuButton.addTarget(self, action: #selector(didTapGameOverButton(_:)), for: .touchUpInside); gameOverUIElements = [gameOverOverlayView, gameOverStatusLabel, playAgainButton, overlayMainMenuButton] }
-    func configureGameOverButton(_ button: UIButton, title: String, color: UIColor) { /* ... no changes needed here ... */ button.setTitle(title, for: .normal); if #available(iOS 15.0, *) { var config = UIButton.Configuration.filled(); config.baseBackgroundColor = color; config.baseForegroundColor = .white; config.cornerStyle = .medium; config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in var outgoing = incoming; outgoing.font = UIFont.systemFont(ofSize: 18, weight: .semibold); return outgoing }; config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 20, bottom: 10, trailing: 20); button.configuration = config } else { button.backgroundColor = color; button.setTitleColor(.white, for: .normal); button.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .semibold); button.layer.cornerRadius = 8; button.contentEdgeInsets = UIEdgeInsets(top: 10, left: 20, bottom: 10, right: 20) }; button.layer.shadowColor = UIColor.black.cgColor; button.layer.shadowOffset = CGSize(width: 0, height: 1); button.layer.shadowRadius = 3; button.layer.shadowOpacity = 0.3; button.layer.masksToBounds = false }
-    func setupGameOverUIConstraints() { /* ... no changes needed here ... */ print("Setting up Game Over UI constraints"); let safeArea = view.safeAreaLayoutGuide; let buttonSpacing: CGFloat = 20; let overlayContentView = gameOverOverlayView.contentView; NSLayoutConstraint.activate([ gameOverOverlayView.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor), gameOverOverlayView.centerYAnchor.constraint(equalTo: safeArea.centerYAnchor), gameOverOverlayView.widthAnchor.constraint(equalTo: safeArea.widthAnchor, multiplier: 0.7), gameOverOverlayView.heightAnchor.constraint(lessThanOrEqualTo: safeArea.heightAnchor, multiplier: 0.5), gameOverStatusLabel.topAnchor.constraint(equalTo: overlayContentView.topAnchor, constant: 30), gameOverStatusLabel.leadingAnchor.constraint(equalTo: overlayContentView.leadingAnchor, constant: 20), gameOverStatusLabel.trailingAnchor.constraint(equalTo: overlayContentView.trailingAnchor, constant: -20), playAgainButton.topAnchor.constraint(equalTo: gameOverStatusLabel.bottomAnchor, constant: 30), playAgainButton.centerXAnchor.constraint(equalTo: overlayContentView.centerXAnchor), overlayMainMenuButton.topAnchor.constraint(equalTo: playAgainButton.bottomAnchor, constant: buttonSpacing), overlayMainMenuButton.centerXAnchor.constraint(equalTo: overlayContentView.centerXAnchor), overlayMainMenuButton.widthAnchor.constraint(equalTo: playAgainButton.widthAnchor), overlayMainMenuButton.bottomAnchor.constraint(lessThanOrEqualTo: overlayContentView.bottomAnchor, constant: -30) ]) }
-    
+    // Modify createNewGameOverUI()
+    func createNewGameOverUI() {
+        print("Creating Game Over UI with Blur")
+        gameOverOverlayView.translatesAutoresizingMaskIntoConstraints = false
+        // gameOverOverlayView.effect = UIBlurEffect(style: .systemMaterialDark) // Will set this dynamically
+        gameOverOverlayView.layer.cornerRadius = 20 // Slightly larger radius
+        gameOverOverlayView.layer.masksToBounds = true
+        gameOverOverlayView.isHidden = true
+
+        // Icon Image View
+        gameOverIconImageView.translatesAutoresizingMaskIntoConstraints = false
+        gameOverIconImageView.contentMode = .scaleAspectFit
+        gameOverIconImageView.alpha = 0.7 // Slightly transparent
+        gameOverOverlayView.contentView.addSubview(gameOverIconImageView)
+
+        gameOverOverlayView.contentView.addSubview(gameOverStatusLabel)
+        gameOverOverlayView.contentView.addSubview(playAgainButton)
+        gameOverOverlayView.contentView.addSubview(overlayMainMenuButton)
+        view.addSubview(gameOverOverlayView)
+
+        gameOverStatusLabel.translatesAutoresizingMaskIntoConstraints = false
+        gameOverStatusLabel.font = UIFont.systemFont(ofSize: 28, weight: .bold) // Slightly smaller, icon will take space
+        gameOverStatusLabel.textColor = .white // Default, might change
+        gameOverStatusLabel.textAlignment = .center
+        gameOverStatusLabel.numberOfLines = 0
+
+        playAgainButton.translatesAutoresizingMaskIntoConstraints = false
+        // configureGameOverButton(playAgainButton, title: "Play Again", color: UIColor.systemGreen.withAlphaComponent(0.8)) // OLD
+        // Will configure dynamically
+        playAgainButton.addTarget(self, action: #selector(didTapGameOverButton(_:)), for: .touchUpInside)
+
+        overlayMainMenuButton.translatesAutoresizingMaskIntoConstraints = false
+        // configureGameOverButton(overlayMainMenuButton, title: "Main Menu", color: UIColor.systemBlue.withAlphaComponent(0.8)) // OLD
+        // Will configure dynamically
+        overlayMainMenuButton.addTarget(self, action: #selector(didTapGameOverButton(_:)), for: .touchUpInside)
+
+        gameOverUIElements = [gameOverOverlayView, gameOverIconImageView, gameOverStatusLabel, playAgainButton, overlayMainMenuButton]
+    }
+    // Modify configureGameOverButton to handle primary/secondary styling
+    func configureGameOverButton(_ button: UIButton, title: String, color: UIColor, isPrimary: Bool) { // Added isPrimary
+        button.setTitle(title, for: .normal)
+        if #available(iOS 15.0, *) {
+            var config = isPrimary ? UIButton.Configuration.filled() : UIButton.Configuration.tinted() // Use tinted for secondary
+            config.baseBackgroundColor = isPrimary ? color : nil // Filled uses baseBackgroundColor
+            config.baseForegroundColor = isPrimary ? .white : color // Tinted uses baseForegroundColor for text/icon
+            config.cornerStyle = .capsule // More modern feel
+            config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+                var outgoing = incoming
+                outgoing.font = UIFont.systemFont(ofSize: isPrimary ? 19 : 17, weight: isPrimary ? .bold : .semibold)
+                return outgoing
+            }
+            config.contentInsets = NSDirectionalEdgeInsets(top: isPrimary ? 12 : 10, leading: 25, bottom: isPrimary ? 12 : 10, trailing: 25)
+
+            if !isPrimary { // Add a subtle border to secondary button
+                config.background.strokeColor = color.withAlphaComponent(0.7)
+                config.background.strokeWidth = 1.0
+            }
+
+            button.configuration = config
+        } else {
+            // Fallback for older iOS
+            button.backgroundColor = isPrimary ? color : color.withAlphaComponent(0.15)
+            button.setTitleColor(isPrimary ? .white : color, for: .normal)
+            button.titleLabel?.font = UIFont.systemFont(ofSize: isPrimary ? 18 : 16, weight: .semibold)
+            button.layer.cornerRadius = (button.frame.height / 2) > 0 ? (button.frame.height / 2) : 20 // Capsule like
+            button.contentEdgeInsets = UIEdgeInsets(top: 10, left: 20, bottom: 10, right: 20)
+            if !isPrimary {
+                button.layer.borderColor = color.withAlphaComponent(0.7).cgColor
+                button.layer.borderWidth = 1.0
+            } else {
+                button.layer.borderWidth = 0
+            }
+        }
+        // Common shadow for both
+        button.layer.shadowColor = UIColor.black.cgColor
+        button.layer.shadowOffset = CGSize(width: 0, height: isPrimary ? 2 : 1)
+        button.layer.shadowRadius = isPrimary ? 4 : 2
+        button.layer.shadowOpacity = isPrimary ? 0.2 : 0.1
+        button.layer.masksToBounds = false
+    }
+    // Modify setupGameOverUIConstraints() to include the icon
+    func setupGameOverUIConstraints() {
+        print("Setting up Game Over UI constraints")
+        let safeArea = view.safeAreaLayoutGuide
+        let buttonSpacing: CGFloat = 18 // Slightly less spacing
+        let overlayContentView = gameOverOverlayView.contentView
+
+        NSLayoutConstraint.activate([
+            gameOverOverlayView.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
+            gameOverOverlayView.centerYAnchor.constraint(equalTo: safeArea.centerYAnchor),
+            gameOverOverlayView.widthAnchor.constraint(equalTo: safeArea.widthAnchor, multiplier: 0.75), // Slightly wider
+            gameOverOverlayView.heightAnchor.constraint(lessThanOrEqualTo: safeArea.heightAnchor, multiplier: 0.6), // Can be taller
+
+            // Icon View Constraints
+            gameOverIconImageView.topAnchor.constraint(equalTo: overlayContentView.topAnchor, constant: 25),
+            gameOverIconImageView.centerXAnchor.constraint(equalTo: overlayContentView.centerXAnchor),
+            gameOverIconImageView.widthAnchor.constraint(equalToConstant: 60), // Size of the icon
+            gameOverIconImageView.heightAnchor.constraint(equalToConstant: 60),
+
+            // Status Label Constraints (below icon)
+            gameOverStatusLabel.topAnchor.constraint(equalTo: gameOverIconImageView.bottomAnchor, constant: 15),
+            gameOverStatusLabel.leadingAnchor.constraint(equalTo: overlayContentView.leadingAnchor, constant: 20),
+            gameOverStatusLabel.trailingAnchor.constraint(equalTo: overlayContentView.trailingAnchor, constant: -20),
+
+            // Buttons
+            playAgainButton.topAnchor.constraint(equalTo: gameOverStatusLabel.bottomAnchor, constant: 25),
+            playAgainButton.centerXAnchor.constraint(equalTo: overlayContentView.centerXAnchor),
+            // playAgainButton.widthAnchor.constraint(equalTo: overlayContentView.widthAnchor, multiplier: 0.7), // Make buttons wider
+
+            overlayMainMenuButton.topAnchor.constraint(equalTo: playAgainButton.bottomAnchor, constant: buttonSpacing),
+            overlayMainMenuButton.centerXAnchor.constraint(equalTo: overlayContentView.centerXAnchor),
+            overlayMainMenuButton.widthAnchor.constraint(equalTo: playAgainButton.widthAnchor), // Match Play Again width
+            overlayMainMenuButton.bottomAnchor.constraint(lessThanOrEqualTo: overlayContentView.bottomAnchor, constant: -25)
+        ])
+    }
+
     // --- Turn Indicator (Underline) ---
     func setupTurnIndicatorView() { /* ... no changes needed ... */ guard statusLabel != nil else { return }; let indicator = UIView(); indicator.translatesAutoresizingMaskIntoConstraints = false; indicator.backgroundColor = .clear; indicator.layer.cornerRadius = 1.5; indicator.isHidden = true; view.addSubview(indicator); self.turnIndicatorView = indicator; NSLayoutConstraint.activate([indicator.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 4), indicator.heightAnchor.constraint(equalToConstant: 3), indicator.centerXAnchor.constraint(equalTo: statusLabel.centerXAnchor)]); print("Turn indicator view created.") }
-    func updateTurnIndicatorLine() { /* ... no changes needed ... */ guard let indicator = turnIndicatorView, let label = statusLabel else { return }; let targetColor: UIColor; let targetWidth: CGFloat; if gameOver || currentGameState != .playing { targetColor = .clear; targetWidth = 0 } else { targetColor = (currentPlayer == .black) ? .black : UIColor(white: 0.9, alpha: 0.9); targetWidth = label.intrinsicContentSize.width * 0.6 }; UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5, options: .curveEaseOut, animations: { indicator.backgroundColor = targetColor; if let widthConstraint = indicator.constraints.first(where: { $0.firstAttribute == .width }) { widthConstraint.constant = targetWidth } else { indicator.widthAnchor.constraint(equalToConstant: targetWidth).isActive = true }; indicator.superview?.layoutIfNeeded() }, completion: nil); indicator.isHidden = (gameOver || currentGameState != .playing) }
+    func updateTurnIndicatorLine() { /* ... no changes needed ... */ guard let indicator = turnIndicatorView, let label = statusLabel else { return }; let targetColor: UIColor; let targetWidth: CGFloat; if gameOver || currentGameState != .playing { targetColor = .clear; targetWidth = 0 } else { targetColor = (currentPlayer == .black) ? UIColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 0.85) : UIColor.systemBlue.withAlphaComponent(0.75); targetWidth = label.intrinsicContentSize.width * 0.6 }; UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5, options: .curveEaseOut, animations: { indicator.backgroundColor = targetColor; if let widthConstraint = indicator.constraints.first(where: { $0.firstAttribute == .width }) { widthConstraint.constant = targetWidth } else { indicator.widthAnchor.constraint(equalToConstant: targetWidth).isActive = true }; indicator.superview?.layoutIfNeeded() }, completion: nil); indicator.isHidden = (gameOver || currentGameState != .playing) }
 
     // --- Visibility Functions ---
     func showSetupUI() {
@@ -300,9 +537,12 @@ class ViewController: UIViewController {
         boardView.isHidden = true
         resetButton.isHidden = true
         mainMenuButton.isHidden = true
-        moveCountLabel.isHidden = true // Hide move count label
-        gameOverOverlayView.isHidden = true // Ensure overlay is hidden
+        moveCountLabel.isHidden = true
+        gameOverOverlayView.isHidden = true
         turnIndicatorView?.isHidden = true
+        hideAiThinkingIndicator() // <-- NEW: Hide AI indicator
+        currentGameState = .setup
+        setupMainBackground()
 
         // Remove gesture recognizer
         boardView.gestureRecognizers?.forEach { boardView.removeGestureRecognizer($0) }
@@ -323,6 +563,9 @@ class ViewController: UIViewController {
         // Hide setup elements instantly BEFORE transition
         setupUIElements.forEach { $0.isHidden = true }
         gameTitleLabel.isHidden = true
+        currentGameState = .playing // Set state BEFORE setting up background
+        setupMainBackground()      // <-- ADD: Refresh background for game
+
 
         let gameElementsToShow = [statusLabel, boardView, resetButton, mainMenuButton, moveCountLabel] // Add move count label
 
@@ -344,24 +587,108 @@ class ViewController: UIViewController {
             }
         })
     }
-    func showGameOverOverlay(message: String) { /* ... no changes needed ... */
+    
+    // Helper enum for clarity
+    enum GameOutcome { case win, loss, draw }
+
+    // Modify showGameOverOverlay()
+    func showGameOverOverlay(message: String) {
         print("Showing Game Over Overlay: \(message)")
-        
-        // --- ADDED: Add flair to message ---
-        let displayMessage: String
+
+        let outcome: GameOutcome // Define an enum or use string parsing
         if message.contains("Wins") {
-             // Using "trophy.fill" SF Symbol
-             displayMessage = "🏆 " + message
+            if message.contains("Black") && currentPlayer == .black || message.contains("White") && currentPlayer == .white {
+                 // This logic is a bit complex for determining if HUMAN won.
+                 // Let's simplify: if AI is NOT the winner, human (or first player in HvsH) won.
+                if currentGameMode == .humanVsHuman {
+                    outcome = .win // Assuming the current player who made the winning move is the "human winner"
+                } else {
+                    // Human vs AI: if AI is not the current player, human won.
+                    outcome = (aiPlayer != currentPlayer) ? .win : .loss
+                }
+            } else {
+                outcome = .loss // AI won, or other player in HvsH
+            }
         } else {
-             // Draw message
-             displayMessage = "🤝 " + message // Example: Handshake for draw
+            outcome = .draw
         }
-        gameOverStatusLabel.text = displayMessage
-        // --- End Flair ---
+
+        // --- Configure based on outcome ---
+        let iconConfig = UIImage.SymbolConfiguration(pointSize: 50, weight: .medium)
+        var blurEffectStyle: UIBlurEffect.Style = .systemMaterialDark
+        var iconImageName: String = "flag.checkered.2.crossed" // Default
+        var iconTintColor: UIColor = .white
+        var statusTextColor: UIColor = .white
+        var playAgainColor: UIColor = .systemGreen
+        var menuColor: UIColor = .systemBlue
+
+        switch outcome {
+        case .win: // Human wins
+            // blurEffectStyle = .systemMaterialLight // Lighter blur for win
+            iconImageName = "trophy.fill"
+            iconTintColor = UIColor(red: 0.95, green: 0.73, blue: 0.26, alpha: 1.0) // Gold
+            statusTextColor = .white //UIColor(red: 0.1, green: 0.4, blue: 0.1, alpha: 1.0) // Dark Green on light blur
+            playAgainColor = UIColor.systemGreen.withAlphaComponent(0.9)
+            menuColor = UIColor.systemGray.withAlphaComponent(0.8)
+            gameOverStatusLabel.text = "🏆 You Win!"
+        case .loss: // Human loses (AI Wins)
+            blurEffectStyle = .systemMaterialDark // Keep dark for loss
+            iconImageName = "hand.thumbsdown.fill" // Or "figure.walk.motion" for AI walking away victoriously
+            iconTintColor = UIColor(red: 0.8, green: 0.8, blue: 0.85, alpha: 1.0) // Light Gray
+            statusTextColor = UIColor(white: 0.9, alpha: 0.9)
+            playAgainColor = UIColor.systemBlue.withAlphaComponent(0.85) // More prominent "Play Again"
+            menuColor = UIColor.systemGray2.withAlphaComponent(0.7)
+            gameOverStatusLabel.text = "😕 AI Wins"
+            if currentGameMode == .humanVsHuman {
+                gameOverStatusLabel.text = "🏆 \(message)" // Keep original winner message for HvsH
+                iconImageName = "trophy.fill" // Still a win for someone
+                iconTintColor = UIColor(red: 0.95, green: 0.73, blue: 0.26, alpha: 1.0) // Gold
+            }
+        case .draw:
+            blurEffectStyle = .systemMaterial // Neutral blur
+            iconImageName = "scalemass.fill"
+            iconTintColor = UIColor(white: 0.85, alpha: 1.0)
+            statusTextColor = .white //UIColor(white: 0.2, alpha: 0.9) // Dark gray on neutral blur
+            playAgainColor = UIColor.systemOrange.withAlphaComponent(0.85)
+            menuColor = UIColor.systemGray.withAlphaComponent(0.8)
+            gameOverStatusLabel.text = "🤝 Draw!"
+        }
+
+        gameOverOverlayView.effect = UIBlurEffect(style: blurEffectStyle)
+        gameOverIconImageView.image = UIImage(systemName: iconImageName, withConfiguration: iconConfig)
+        gameOverIconImageView.tintColor = iconTintColor
+        gameOverStatusLabel.textColor = statusTextColor
+        // The original message already has an icon, let's use the new label for the main text.
+        // gameOverStatusLabel.text = displayMessage // Keep your original flair logic if preferred
+
+        // Configure buttons
+        configureGameOverButton(playAgainButton, title: "Play Again", color: playAgainColor, isPrimary: true)
+        configureGameOverButton(overlayMainMenuButton, title: "Main Menu", color: menuColor, isPrimary: false)
+
 
         gameOverOverlayView.isHidden = false
         gameOverOverlayView.alpha = 0
-        gameOverOverlayView.transform = CGAffineTransform(scaleX: 1.1, y: 1.1); view.bringSubviewToFront(gameOverOverlayView); resetButton.isHidden = true; mainMenuButton.isHidden = true; UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0.3, options: .curveEaseOut, animations: { self.gameOverOverlayView.alpha = 1.0; self.gameOverOverlayView.transform = .identity }, completion: nil); view.isUserInteractionEnabled = true; turnIndicatorView?.isHidden = true }
+        // Animate icon and text along with the overlay
+        gameOverIconImageView.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
+        gameOverStatusLabel.transform = CGAffineTransform(translationX: 0, y: 10)
+        gameOverOverlayView.transform = CGAffineTransform(scaleX: 1.1, y: 1.1)
+
+        view.bringSubviewToFront(gameOverOverlayView)
+        resetButton.isHidden = true
+        mainMenuButton.isHidden = true
+
+        UIView.animate(withDuration: 0.45, delay: 0, usingSpringWithDamping: 0.75, initialSpringVelocity: 0.2, options: .curveEaseOut, animations: {
+            self.gameOverOverlayView.alpha = 1.0
+            self.gameOverOverlayView.transform = .identity
+            self.gameOverIconImageView.transform = .identity
+            self.gameOverStatusLabel.transform = .identity
+        }, completion: nil)
+
+        view.isUserInteractionEnabled = true
+        turnIndicatorView?.isHidden = true
+        hideAiThinkingIndicator() // Ensure AI indicator is hidden
+    }
+
     func hideGameOverOverlay() { /* ... no changes needed ... */ print("Hiding Game Over Overlay"); UIView.animate(withDuration: 0.2, animations: { self.gameOverOverlayView.alpha = 0.0; self.gameOverOverlayView.transform = CGAffineTransform(scaleX: 0.9, y: 0.9) }) { _ in self.gameOverOverlayView.isHidden = true; self.gameOverOverlayView.transform = .identity; if self.currentGameState == .playing { self.resetButton.isHidden = false; self.mainMenuButton.isHidden = false; self.turnIndicatorView?.isHidden = self.gameOver } } }
 
     // --- Button Actions ---
@@ -388,7 +715,7 @@ class ViewController: UIViewController {
     // --- Button Actions ---
     @objc func didTapSetupButton(_ sender: UIButton) {
         animateButtonUp(sender) // Animate up on release inside
-        impactFeedbackGenerator.impactOccurred()
+        lightImpactFeedbackGenerator.impactOccurred()
         // Add touch down event to trigger down animation
         sender.addTarget(self, action: #selector(buttonTouchDown(_:)), for: .touchDown)
         sender.addTarget(self, action: #selector(buttonTouchDragExit(_:)), for: .touchDragExit)
@@ -502,8 +829,49 @@ class ViewController: UIViewController {
         print("Move Count Label constraints activated.")
     }
     
-    func setupMainBackground() { /* ... */ backgroundGradientLayer?.removeFromSuperlayer(); let gradient = CAGradientLayer(); gradient.frame = self.view.bounds; let topColor = UIColor(red: 0.96, green: 0.97, blue: 0.98, alpha: 1.0).cgColor; let bottomColor = UIColor(red: 0.91, green: 0.92, blue: 0.93, alpha: 1.0).cgColor; gradient.colors = [topColor, bottomColor]; gradient.startPoint = CGPoint(x: 0.5, y: 0.0); gradient.endPoint = CGPoint(x: 0.5, y: 1.0); self.view.layer.insertSublayer(gradient, at: 0); self.backgroundGradientLayer = gradient }
-    func styleResetButton() { /* ... */ guard let button = resetButton else { return }; print("Styling Reset Button (V3 - with Icon)..."); if #available(iOS 15.0, *) { var config = UIButton.Configuration.filled(); config.title = "Reset Game"; config.attributedTitle?.font = UIFont.systemFont(ofSize: 16, weight: .semibold); config.image = UIImage(systemName: "arrow.counterclockwise.circle"); config.imagePadding = 8; config.imagePlacement = .leading; config.baseBackgroundColor = UIColor(red: 0.90, green: 0.91, blue: 0.93, alpha: 1.0); config.baseForegroundColor = UIColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1.0); config.cornerStyle = .medium; config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 18, bottom: 10, trailing: 18); button.configuration = config; button.layer.shadowColor = UIColor.black.cgColor; button.layer.shadowOffset = CGSize(width: 0, height: 1); button.layer.shadowRadius = 2.5; button.layer.shadowOpacity = 0.12; button.layer.masksToBounds = false } else { let buttonBackgroundColor = UIColor(red: 0.95, green: 0.95, blue: 0.97, alpha: 1.0); let buttonTextColor = UIColor(red: 0.2, green: 0.2, blue: 0.2, alpha: 1.0); let buttonBorderColor = UIColor(red: 0.75, green: 0.75, blue: 0.75, alpha: 0.8); button.backgroundColor = buttonBackgroundColor; button.setTitleColor(buttonTextColor, for: .normal); button.setTitleColor(buttonTextColor.withAlphaComponent(0.5), for: .highlighted); button.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .semibold); button.layer.cornerRadius = 8; button.layer.borderWidth = 0.75; button.layer.borderColor = buttonBorderColor.cgColor; button.layer.shadowColor = UIColor.black.cgColor; button.layer.shadowOffset = CGSize(width: 0, height: 1); button.layer.shadowRadius = 2.5; button.layer.shadowOpacity = 0.12; button.layer.masksToBounds = false; button.contentEdgeInsets = UIEdgeInsets(top: 10, left: 20, bottom: 10, right: 20) }; print("Reset Button styling applied (V3).") }
+    func setupMainBackground() {
+        backgroundGradientLayer?.removeFromSuperlayer()
+        let gradient = CAGradientLayer()
+        gradient.frame = self.view.bounds
+
+        let topColor: CGColor
+        let bottomColor: CGColor
+
+        if currentGameState == .setup {
+            // Subtle gradient for Setup Screen
+            topColor = UIColor(red: 0.92, green: 0.93, blue: 0.94, alpha: 1.0).cgColor // Lighter, cooler top
+            bottomColor = UIColor(red: 0.88, green: 0.89, blue: 0.90, alpha: 1.0).cgColor // Lighter, cooler bottom
+        } else {
+            // Existing gradient for Game Screen
+            topColor = UIColor(red: 0.96, green: 0.97, blue: 0.98, alpha: 1.0).cgColor
+            bottomColor = UIColor(red: 0.91, green: 0.92, blue: 0.93, alpha: 1.0).cgColor
+        }
+
+        gradient.colors = [topColor, bottomColor]
+        gradient.startPoint = CGPoint(x: 0.5, y: 0.0)
+        gradient.endPoint = CGPoint(x: 0.5, y: 1.0)
+        self.view.layer.insertSublayer(gradient, at: 0)
+        self.backgroundGradientLayer = gradient
+    }
+    func styleResetButton() { /* ... */
+        guard let button = resetButton else { return }; print("Styling Reset Button (V3 - with Icon)...");
+        if #available(iOS 15.0, *) {
+            var config = UIButton.Configuration.filled();
+            config.title = "Reset Game";
+            config.attributedTitle?.font = UIFont.systemFont(ofSize: 16, weight: .semibold);
+            config.image = UIImage(systemName: "arrow.counterclockwise.circle");
+            config.imagePadding = 8; config.imagePlacement = .leading;
+            config.baseBackgroundColor = UIColor(red: 0.90, green: 0.91, blue: 0.93, alpha: 1.0);
+            config.baseForegroundColor = UIColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1.0);
+            config.cornerStyle = .medium;
+            config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 18, bottom: 10, trailing: 18);
+            button.configuration = config;
+            button.layer.shadowColor = UIColor.black.cgColor;
+            button.layer.shadowOffset = CGSize(width: 0, height: 1); button.layer.shadowRadius = 2.5; button.layer.shadowOpacity = 0.12; button.layer.masksToBounds = false
+        } else {
+            let buttonBackgroundColor = UIColor(red: 0.95, green: 0.95, blue: 0.97, alpha: 1.0); let buttonTextColor = UIColor(red: 0.2, green: 0.2, blue: 0.2, alpha: 1.0); let buttonBorderColor = UIColor(red: 0.75, green: 0.75, blue: 0.75, alpha: 0.8); button.backgroundColor = buttonBackgroundColor; button.setTitleColor(buttonTextColor, for: .normal); button.setTitleColor(buttonTextColor.withAlphaComponent(0.5), for: .highlighted); button.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .semibold); button.layer.cornerRadius = 8; button.layer.borderWidth = 0.75; button.layer.borderColor = buttonBorderColor.cgColor; button.layer.shadowColor = UIColor.black.cgColor; button.layer.shadowOffset = CGSize(width: 0, height: 1); button.layer.shadowRadius = 2.5; button.layer.shadowOpacity = 0.12; button.layer.masksToBounds = false; button.contentEdgeInsets = UIEdgeInsets(top: 10, left: 20, bottom: 10, right: 20)
+        };
+        print("Reset Button styling applied (V3).") }
     func styleStatusLabel() { /* ... */ guard let label = statusLabel else { return }; label.font = UIFont.systemFont(ofSize: 22, weight: .medium); label.textColor = UIColor(red: 0.15, green: 0.15, blue: 0.15, alpha: 1.0); label.textAlignment = .center; label.layer.shadowColor = UIColor.black.cgColor; label.layer.shadowOffset = CGSize(width: 0, height: 1); label.layer.shadowRadius = 2.0; label.layer.shadowOpacity = 0.1; label.layer.masksToBounds = false }
 
     // --- Drawing Functions ---
@@ -514,16 +882,123 @@ class ViewController: UIViewController {
         print("Drawing procedural wood background into bounds: \(boardView.bounds)")
         let baseLayer = CALayer()
         baseLayer.frame = boardView.bounds
-        baseLayer.backgroundColor = UIColor(red: 0.65, green: 0.50, blue: 0.35, alpha: 1.0).cgColor
+        baseLayer.backgroundColor = UIColor(red: 0.60, green: 0.45, blue: 0.30, alpha: 1.0).cgColor
         baseLayer.cornerRadius = boardView.layer.cornerRadius // Use boardView's radius
         baseLayer.masksToBounds = true // <-- IMPORTANT: Clip the wood layer
         boardView.layer.insertSublayer(baseLayer, at: 0)
         woodBackgroundLayers.append(baseLayer)
-        let grainLayerCount = 35; let boardWidth = boardView.bounds.width; let boardHeight = boardView.bounds.height; for _ in 0..<grainLayerCount { let grainLayer = CALayer(); let randomDarkness = CGFloat.random(in: -0.10...0.15); let baseRed: CGFloat = 0.65; let baseGreen: CGFloat = 0.50; let baseBlue: CGFloat = 0.35; let grainColor = UIColor(red: max(0.1, min(0.9, baseRed + randomDarkness)), green: max(0.1, min(0.9, baseGreen + randomDarkness)), blue: max(0.1, min(0.9, baseBlue + randomDarkness)), alpha: CGFloat.random(in: 0.1...0.35)); grainLayer.backgroundColor = grainColor.cgColor; let grainWidth = CGFloat.random(in: 1.5...4.0); let grainX = CGFloat.random(in: 0...(boardWidth - grainWidth)); grainLayer.frame = CGRect(x: grainX, y: 0, width: grainWidth, height: boardHeight); baseLayer.addSublayer(grainLayer) }; let lightingGradient = CAGradientLayer(); lightingGradient.frame = boardView.bounds; lightingGradient.cornerRadius = baseLayer.cornerRadius; lightingGradient.type = .radial; lightingGradient.colors = [UIColor(white: 1.0, alpha: 0.15).cgColor, UIColor(white: 1.0, alpha: 0.0).cgColor, UIColor(white: 0.0, alpha: 0.15).cgColor]; lightingGradient.locations = [0.0, 0.6, 1.0]; lightingGradient.startPoint = CGPoint(x: 0.5, y: 0.5); lightingGradient.endPoint = CGPoint(x: 1.0, y: 1.0); baseLayer.addSublayer(lightingGradient); baseLayer.borderWidth = 2.0; baseLayer.borderColor = UIColor(white: 0.1, alpha: 0.8).cgColor }
-    func drawBoard() { /* ... */ boardView.layer.sublayers?.filter { $0.name == "gridLine" }.forEach { $0.removeFromSuperlayer() }; guard cellSize > 0 else { print("Skipping drawBoard: cellSize is 0"); return }; guard woodBackgroundLayers.first != nil else { print("Cannot draw board: Wood background layer not found."); return }; let boardDimension = cellSize * CGFloat(boardSize - 1); let gridLineColor = UIColor(white: 0.1, alpha: 0.65).cgColor; let gridLineWidth: CGFloat = 0.75; for i in 0..<boardSize { let vLayer = CALayer(); let xPos = boardPadding + CGFloat(i) * cellSize; vLayer.frame = CGRect(x: xPos - (gridLineWidth / 2), y: boardPadding, width: gridLineWidth, height: boardDimension); vLayer.backgroundColor = gridLineColor; vLayer.name = "gridLine"; boardView.layer.addSublayer(vLayer); let hLayer = CALayer(); let yPos = boardPadding + CGFloat(i) * cellSize; hLayer.frame = CGRect(x: boardPadding, y: yPos - (gridLineWidth / 2), width: boardDimension, height: gridLineWidth); hLayer.backgroundColor = gridLineColor; hLayer.name = "gridLine"; boardView.layer.addSublayer(hLayer) }; print("Board drawn with cell size: \(cellSize)") }
+        let grainLayerCount = 35; let boardWidth = boardView.bounds.width; let boardHeight = boardView.bounds.height; for _ in 0..<grainLayerCount { let grainLayer = CALayer(); let randomDarkness = CGFloat.random(in: -0.08...0.12); let baseRed: CGFloat = 0.60; let baseGreen: CGFloat = 0.45; let baseBlue: CGFloat = 0.30;
+            let grainColor = UIColor(
+                red: max(0.15, min(0.85, baseRed + randomDarkness)),
+                green: max(0.10, min(0.80, baseGreen + randomDarkness)),
+                blue: max(0.05, min(0.75, baseBlue + randomDarkness)),
+                alpha: CGFloat.random(in: 0.15...0.40)
+            )
+            grainLayer.backgroundColor = grainColor.cgColor
+            let grainWidth = CGFloat.random(in: 1.5...4.0); let grainX = CGFloat.random(in: 0...(boardWidth - grainWidth)); grainLayer.frame = CGRect(x: grainX, y: 0, width: grainWidth, height: boardHeight); baseLayer.addSublayer(grainLayer) }; let lightingGradient = CAGradientLayer(); lightingGradient.frame = boardView.bounds; lightingGradient.cornerRadius = baseLayer.cornerRadius; lightingGradient.type = .radial; lightingGradient.colors = [UIColor(white: 1.0, alpha: 0.15).cgColor, UIColor(white: 1.0, alpha: 0.0).cgColor, UIColor(white: 0.0, alpha: 0.15).cgColor]; lightingGradient.locations = [0.0, 0.6, 1.0]; lightingGradient.startPoint = CGPoint(x: 0.5, y: 0.5); lightingGradient.endPoint = CGPoint(x: 1.0, y: 1.0); baseLayer.addSublayer(lightingGradient); baseLayer.borderWidth = 1.5; baseLayer.borderColor = UIColor(red: 0.2, green: 0.15, blue: 0.1, alpha: 0.85).cgColor }
+    func drawBoard() { /* ... */ boardView.layer.sublayers?.filter { $0.name == "gridLine" }.forEach { $0.removeFromSuperlayer() }; guard cellSize > 0 else { print("Skipping drawBoard: cellSize is 0"); return }; guard woodBackgroundLayers.first != nil else { print("Cannot draw board: Wood background layer not found."); return }; let boardDimension = cellSize * CGFloat(boardSize - 1); let gridLineColor = UIColor(red: 0.35, green: 0.3, blue: 0.25, alpha: 0.55).cgColor; let gridLineWidth: CGFloat = 0.6; for i in 0..<boardSize { let vLayer = CALayer(); let xPos = boardPadding + CGFloat(i) * cellSize; vLayer.frame = CGRect(x: xPos - (gridLineWidth / 2), y: boardPadding, width: gridLineWidth, height: boardDimension); vLayer.backgroundColor = gridLineColor; vLayer.name = "gridLine"; boardView.layer.addSublayer(vLayer); let hLayer = CALayer(); let yPos = boardPadding + CGFloat(i) * cellSize; hLayer.frame = CGRect(x: boardPadding, y: yPos - (gridLineWidth / 2), width: boardDimension, height: gridLineWidth); hLayer.backgroundColor = gridLineColor; hLayer.name = "gridLine"; boardView.layer.addSublayer(hLayer) }; print("Board drawn with cell size: \(cellSize)") }
     func redrawPieces() { /* ... */ guard cellSize > 0 else { print("Skipping redrawPieces: cellSize is 0"); return }; boardView.subviews.forEach { $0.removeFromSuperview() }; pieceViews = Array(repeating: Array(repeating: nil, count: boardSize), count: boardSize); for r in 0..<boardSize { for c in 0..<boardSize { let cellState = board[r][c]; if cellState == .black || cellState == .white { drawPiece(atRow: r, col: c, player: (cellState == .black) ? .black : .white, animate: false) }}} }
-    func drawPiece(atRow row: Int, col: Int, player: Player, animate: Bool = true) { /* ... */ guard cellSize > 0 else { return }; let pieceSize = cellSize * 0.85; let x = boardPadding + CGFloat(col) * cellSize - (pieceSize / 2); let y = boardPadding + CGFloat(row) * cellSize - (pieceSize / 2); let pieceFrame = CGRect(x: x, y: y, width: pieceSize, height: pieceSize); let pieceView = UIView(frame: pieceFrame); pieceView.backgroundColor = .clear; let gradientLayer = CAGradientLayer(); gradientLayer.frame = pieceView.bounds; gradientLayer.cornerRadius = pieceSize / 2; gradientLayer.type = .radial; let lightColor: UIColor; let darkColor: UIColor; let highlightColor: UIColor; if player == .black { highlightColor = UIColor(white: 0.5, alpha: 1.0); lightColor = UIColor(white: 0.3, alpha: 1.0); darkColor = UIColor(white: 0.05, alpha: 1.0) } else { highlightColor = UIColor(white: 1.0, alpha: 1.0); lightColor = UIColor(white: 0.95, alpha: 1.0); darkColor = UIColor(white: 0.75, alpha: 1.0) }; gradientLayer.colors = [highlightColor.cgColor, lightColor.cgColor, darkColor.cgColor]; gradientLayer.locations = [0.0, 0.15, 1.0]; gradientLayer.startPoint = CGPoint(x: 0.25, y: 0.25); gradientLayer.endPoint = CGPoint(x: 0.75, y: 0.75); pieceView.layer.addSublayer(gradientLayer); pieceView.layer.cornerRadius = pieceSize / 2; pieceView.layer.borderWidth = 0.5; pieceView.layer.borderColor = (player == .black) ? UIColor(white: 0.5, alpha: 0.7).cgColor : UIColor(white: 0.6, alpha: 0.7).cgColor; pieceView.layer.shadowColor = UIColor.black.cgColor; pieceView.layer.shadowOpacity = 0.4; pieceView.layer.shadowOffset = CGSize(width: 1, height: 2); pieceView.layer.shadowRadius = 2.0; pieceView.layer.masksToBounds = false; pieceViews[row][col]?.removeFromSuperview(); boardView.addSubview(pieceView); pieceViews[row][col] = pieceView; if animate { pieceView.alpha = 0.0; pieceView.transform = CGAffineTransform(scaleX: 0.6, y: 0.6); UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 0.6, initialSpringVelocity: 0.5, options: .curveEaseOut, animations: { pieceView.alpha = 1.0; pieceView.transform = .identity }, completion: nil) } else { pieceView.alpha = 1.0; pieceView.transform = .identity } }
-    func showLastMoveIndicator(at position: Position) { /* ... */ lastMoveIndicatorLayer?.removeFromSuperlayer(); lastMoveIndicatorLayer = nil; guard cellSize > 0, !gameOver else { return }; let indicatorSize = cellSize * 0.95; let x = boardPadding + CGFloat(position.col) * cellSize - (indicatorSize / 2); let y = boardPadding + CGFloat(position.row) * cellSize - (indicatorSize / 2); let indicatorFrame = CGRect(x: x, y: y, width: indicatorSize, height: indicatorSize); let indicator = CALayer(); indicator.frame = indicatorFrame; indicator.cornerRadius = indicatorSize / 2; indicator.borderWidth = 2.5; indicator.borderColor = UIColor.systemYellow.withAlphaComponent(0.8).cgColor; indicator.opacity = 0.0; indicator.name = "lastMoveIndicator"; boardView.layer.addSublayer(indicator); self.lastMoveIndicatorLayer = indicator; let fadeIn = CABasicAnimation(keyPath: "opacity"); fadeIn.fromValue = 0.0; fadeIn.toValue = 0.8; fadeIn.duration = 0.2; indicator.opacity = 0.8; indicator.add(fadeIn, forKey: "fadeInIndicator") }
+    func drawPiece(atRow row: Int, col: Int, player: Player, animate: Bool = true) { /* ... */
+        guard cellSize > 0 else { return };
+        let pieceSize = cellSize * 0.88;
+        let x = boardPadding + CGFloat(col) * cellSize - (pieceSize / 2);
+        let y = boardPadding + CGFloat(row) * cellSize - (pieceSize / 2);
+        let pieceFrame = CGRect(x: x, y: y, width: pieceSize, height: pieceSize);
+        let pieceView = UIView(frame: pieceFrame); pieceView.backgroundColor = .clear;
+        let gradientLayer = CAGradientLayer(); gradientLayer.frame = pieceView.bounds;
+        gradientLayer.cornerRadius = pieceSize / 2;
+        let c1, c2, c3, c4: UIColor // For a 4-stop gradient
+        if player == .black {
+            c1 = UIColor(white: 0.60, alpha: 1.0) // Highlight (slightly brighter)
+            c2 = UIColor(white: 0.35, alpha: 1.0) // Main body
+            c3 = UIColor(white: 0.15, alpha: 1.0) // Darker edge
+            c4 = UIColor(white: 0.05, alpha: 1.0) // Deepest shadow/edge
+        } else {
+            c1 = UIColor(white: 1.0, alpha: 1.0)  // Brightest highlight
+            c2 = UIColor(white: 0.92, alpha: 1.0) // Main body (slightly less bright than pure white)
+            c3 = UIColor(white: 0.80, alpha: 1.0) // Softer shadow
+            c4 = UIColor(white: 0.70, alpha: 1.0) // Edge tone
+        }
+        gradientLayer.colors = [c1.cgColor, c2.cgColor, c3.cgColor, c4.cgColor];
+        gradientLayer.locations = [0.0, 0.1, 0.7, 1.0] // NEW: Adjusted locations for smoother falloff
+        gradientLayer.startPoint = CGPoint(x: 0.3, y: 0.3) // NEW: More focused highlight
+        gradientLayer.endPoint = CGPoint(x: 0.7, y: 0.7)   // NEW
+        
+        pieceView.layer.addSublayer(gradientLayer);
+        pieceView.layer.cornerRadius = pieceSize / 2;
+        pieceView.layer.borderWidth = 0.35; // NEW: Thinner border
+        pieceView.layer.borderColor = (player == .black) ?
+            UIColor(white: 0.1, alpha: 0.6).cgColor : // Darker, subtle border for black
+            UIColor(white: 0.65, alpha: 0.5).cgColor; // Lighter, subtle border for white
+        pieceView.layer.shadowColor = UIColor.black.cgColor;
+        pieceView.layer.shadowOpacity = 0.30; // NEW: Softer opacity
+        pieceView.layer.shadowOffset = CGSize(width: 0.75, height: 1.25); // NEW: Slightly less offset
+        pieceView.layer.shadowRadius = 2.5; // NEW: More diffuse radius
+        pieceView.layer.masksToBounds = false;
+        pieceViews[row][col]?.removeFromSuperview();
+        boardView.addSubview(pieceView);
+        pieceViews[row][col] = pieceView;
+        if animate {
+            pieceView.alpha = 0.0; pieceView.transform = CGAffineTransform(scaleX: 0.6, y: 0.6);
+            UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.65, initialSpringVelocity: 0.2, options: .curveEaseOut, animations: { // NEW: Slightly softer spring
+                pieceView.alpha = 1.0;
+                pieceView.transform = .identity
+            }, completion: nil)
+        } else { pieceView.alpha = 1.0; pieceView.transform = .identity } }
+    
+    func showLastMoveIndicator(at position: Position) { /* ... */
+        lastMoveIndicatorLayer?.removeFromSuperlayer();
+        lastMoveIndicatorLayer = nil;
+        guard cellSize > 0, !gameOver else { return };
+        let indicatorSize = cellSize * 0.92;
+        let x = boardPadding + CGFloat(position.col) * cellSize - (indicatorSize / 2);
+        let y = boardPadding + CGFloat(position.row) * cellSize - (indicatorSize / 2);
+        let indicatorFrame = CGRect(x: x, y: y, width: indicatorSize, height: indicatorSize);
+        let indicator = CALayer();
+        indicator.frame = indicatorFrame;
+        indicator.cornerRadius = indicatorSize / 2;
+        indicator.borderWidth = 2.2;
+        indicator.borderColor = UIColor(hue: 0.15, saturation: 0.9, brightness: 0.95, alpha: 0.85).cgColor; // NEW: More saturated yellow
+        
+        indicator.opacity = 0.0;
+        indicator.transform = CATransform3DMakeScale(0.8, 0.8, 1.0)
+        let groupAnimation = CAAnimationGroup()
+        groupAnimation.duration = 0.6 // Total duration for fade and one pulse cycle
+        
+        indicator.name = "lastMoveIndicator";
+        boardView.layer.addSublayer(indicator);
+        self.lastMoveIndicatorLayer = indicator;
+        
+        UIView.animate(withDuration: 0.25, delay: 0, options: .curveEaseOut, animations: {
+            indicator.opacity = 0.85
+            indicator.transform = CATransform3DIdentity // Animate to normal size
+        }, completion: nil)
+        
+        let fadeIn = CABasicAnimation(keyPath: "opacity");
+        fadeIn.fromValue = 0.0;
+        fadeIn.toValue = 0.85;
+        fadeIn.duration = 0.3;
+        fadeIn.timingFunction = CAMediaTimingFunction(name: .easeIn)
+        // Subtle scale pulse (optional, can be removed if too distracting)
+        let pulse = CABasicAnimation(keyPath: "transform.scale")
+        pulse.fromValue = 1.0
+        pulse.toValue = 1.05
+        pulse.autoreverses = true
+        pulse.duration = 0.3 // Half of groupAnimation.duration for one pulse up and down
+        pulse.beginTime = 0.0 // Start immediately with fade-in
+        pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+
+        groupAnimation.animations = [fadeIn, pulse]
+        groupAnimation.fillMode = .forwards // Keep final state
+        groupAnimation.isRemovedOnCompletion = false // Keep final state
+
+        indicator.add(groupAnimation, forKey: "lastMoveIndicatorAnimation")
+        // Set final properties directly in case animation is interrupted or for state consistency
+        indicator.opacity = 0.85
+        indicator.transform = CATransform3DMakeScale(1.0, 1.0, 1.0) // Ensure scale is reset if only opacity is used later
+
+        self.lastMoveIndicatorLayer = indicator
+    }
 
     // --- Game Logic & Interaction ---
     func setupNewGameVariablesOnly() { /* ... */ currentPlayer = .black; board = Array(repeating: Array(repeating: .empty, count: boardSize), count: boardSize); gameOver = false; pieceViews = Array(repeating: Array(repeating: nil, count: boardSize), count: boardSize); lastWinningPositions = nil }
@@ -578,7 +1053,7 @@ class ViewController: UIViewController {
 
         // --- FIX: Trigger Sound & Haptic HERE ---
         playSound(key: "place")
-        impactFeedbackGenerator.impactOccurred()
+        mediumImpactFeedbackGenerator.impactOccurred()
         // ----------------------------------------
 
         print("Human placing piece at (\(tappedRow), \(tappedCol))");
@@ -590,18 +1065,21 @@ class ViewController: UIViewController {
         guard currentGameState == .playing, !gameOver else { return }
         guard checkBounds(row: row, col: col) && board[row][col] == .empty else {
              print("Error: Attempted to place piece in invalid or occupied cell (\(row), \(col)). Current state: \(board[row][col])")
-             if isAiTurn { print("!!! AI ERROR: AI attempted invalid move. Halting AI turn. !!!"); view.isUserInteractionEnabled = true }
+             if isAiTurn { print("!!! AI ERROR: AI attempted invalid move. Halting AI turn. !!!"); view.isUserInteractionEnabled = true; hideAiThinkingIndicator() } // <-- NEW: Hide indicator on AI error
              return
         }
 
-        // --- Increment and Update Move Count ---
         moveCount += 1
         moveCountLabel.text = "Moves: \(moveCount)"
-        
-        let piecePlayer = currentPlayer // Store who is making this move
+
+        let piecePlayer = currentPlayer
+        if isAiTurn && !gameOver { // isAiTurn reflects whose turn it *was* when AI decided the move
+            playSound(key: "place") // AI also makes a sound
+            softImpactFeedbackGenerator.impactOccurred() // Haptic for AI piece
+        }
         let pieceState: CellState = state(for: piecePlayer)
         board[row][col] = pieceState
-        drawPiece(atRow: row, col: col, player: piecePlayer, animate: true) // Piece placed visually
+        drawPiece(atRow: row, col: col, player: piecePlayer, animate: true)
 
         let currentPosition = Position(row: row, col: col)
         self.lastMovePosition = currentPosition
@@ -613,36 +1091,33 @@ class ViewController: UIViewController {
             let winnerName = (pieceState == .black) ? "Black" : "White"; let message = "\(winnerName) Wins!"
             statusLabel.text = message; print(message)
 
-            // --- FIX: Differentiate sound/haptic based on who won ---
             if piecePlayer == aiPlayer {
-                // AI Wins (Human Loses)
                 print("AI Wins. Playing lose sound.")
                 playSound(key: "lose")
-                notificationFeedbackGenerator.notificationOccurred(.error) // Use error haptic for loss
+                notificationFeedbackGenerator.notificationOccurred(.error)
             } else {
-                // Human Wins
                 print("Human Wins. Playing win sound.")
                 playSound(key: "win")
                 notificationFeedbackGenerator.notificationOccurred(.success)
             }
-            // --- End Fix ---
 
-            drawWinningLine(positions: winningPositions) // Draw line & highlight pieces
+            drawWinningLine(positions: winningPositions)
             showGameOverOverlay(message: message); view.isUserInteractionEnabled = true
             lastMoveIndicatorLayer?.removeFromSuperlayer()
             lastMoveIndicatorLayer = nil
+            hideAiThinkingIndicator() // <-- NEW: Hide indicator on game over
 
         } else if isBoardFull() {
             gameOver = true; updateTurnIndicatorLine()
             statusLabel.text = "Draw!"; print("Draw!")
 
-            // --- Draw Sound & Haptic (No change needed here) ---
-            playSound(key: "lose") // Use lose sound for draw
-            notificationFeedbackGenerator.notificationOccurred(.error) // Use error haptic for draw/loss
+            playSound(key: "lose")
+            notificationFeedbackGenerator.notificationOccurred(.warning)
 
             showGameOverOverlay(message: "Draw!"); view.isUserInteractionEnabled = true
             lastMoveIndicatorLayer?.removeFromSuperlayer()
             lastMoveIndicatorLayer = nil
+            hideAiThinkingIndicator() // <-- NEW: Hide indicator on game over
 
         } else {
             switchPlayer() // Only switch if game not over
@@ -651,7 +1126,71 @@ class ViewController: UIViewController {
 
     
     func findWinningLine(playerState: CellState, lastRow: Int, lastCol: Int) -> [Position]? { /* ... */ guard playerState != .empty else { return nil }; let directions = [(0, 1), (1, 0), (1, 1), (1, -1)]; for (dr, dc) in directions { var linePositions: [Position] = [Position(row: lastRow, col: lastCol)]; var count = 1; for i in 1..<5 { let r = lastRow + dr * i; let c = lastCol + dc * i; if checkBounds(row: r, col: c) && board[r][c] == playerState { linePositions.append(Position(row: r, col: c)); count += 1 } else { break } }; for i in 1..<5 { let r = lastRow - dr * i; let c = lastCol - dc * i; if checkBounds(row: r, col: c) && board[r][c] == playerState { linePositions.append(Position(row: r, col: c)); count += 1 } else { break } }; if count >= 5 { linePositions.sort { ($0.row, $0.col) < ($1.row, $1.col) }; return Array(linePositions) } }; return nil }
-    func switchPlayer() { /* ... */ guard !gameOver else { return }; currentPlayer = (currentPlayer == .black) ? .white : .black; statusLabel.text = "\(currentPlayer == .black ? "Black" : "White")'s Turn"; updateTurnIndicatorLine(); if isAiTurn { view.isUserInteractionEnabled = false; statusLabel.text = "Computer (\(selectedDifficulty)) Turn..."; print("Switching to AI (\(selectedDifficulty)) turn..."); let delay = (selectedDifficulty == .hard) ? 0.6 : 0.4; DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in guard let self = self else { return }; if !self.gameOver && self.isAiTurn { self.performAiTurn() } else { print("AI turn skipped (game over or state changed during delay)"); if !self.gameOver { self.view.isUserInteractionEnabled = true } } } } else { print("Switching to Human turn..."); view.isUserInteractionEnabled = true } }
+    func switchPlayer() {
+        guard !gameOver else { return }
+        currentPlayer = (currentPlayer == .black) ? .white : .black
+        statusLabel.text = "\(currentPlayer == .black ? "Black" : "White")'s Turn"
+        updateTurnIndicatorLine()
+
+        if isAiTurn {
+            view.isUserInteractionEnabled = false
+            statusLabel.text = "Computer (\(selectedDifficulty)) Turn..."
+            print("Switching to AI (\(selectedDifficulty)) turn...")
+
+            // --- NEW: Show AI Thinking Indicator ---
+            showAiThinkingIndicator()
+            // ---------------------------------------
+
+            let delay = (selectedDifficulty == .hard) ? 0.6 : 0.4 // Keep existing delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self = self else { return }
+                if !self.gameOver && self.isAiTurn {
+                    self.performAiTurn()
+                } else {
+                    print("AI turn skipped (game over or state changed during delay)")
+                    // --- NEW: Hide AI Thinking Indicator if turn skipped ---
+                    self.hideAiThinkingIndicator()
+                    // -----------------------------------------------------
+                    if !self.gameOver { self.view.isUserInteractionEnabled = true }
+                }
+            }
+        } else {
+            print("Switching to Human turn...")
+            view.isUserInteractionEnabled = true
+            // --- NEW: Hide AI Thinking Indicator ---
+            hideAiThinkingIndicator()
+            // ---------------------------------------
+        }
+    }
+    
+    // --- NEW: AI Thinking Indicator Management ---
+    func showAiThinkingIndicator() {
+        guard let indicator = aiThinkingIndicatorView else { return }
+        indicator.isHidden = false
+        UIView.animate(withDuration: 0.2) {
+            indicator.alpha = 1.0
+        }
+
+        // Add rotation animation
+        let rotationAnimation = CABasicAnimation(keyPath: "transform.rotation.z")
+        rotationAnimation.toValue = NSNumber(value: Double.pi * 2)
+        rotationAnimation.duration = 1.5 // Duration of one rotation
+        rotationAnimation.repeatCount = .infinity // Repeat indefinitely
+        rotationAnimation.timingFunction = CAMediaTimingFunction(name: .linear) // Constant speed
+        indicator.layer.add(rotationAnimation, forKey: "rotationAnimation")
+        print("AI thinking indicator shown and animating.")
+    }
+
+    func hideAiThinkingIndicator() {
+        guard let indicator = aiThinkingIndicatorView else { return }
+        UIView.animate(withDuration: 0.2, animations: {
+            indicator.alpha = 0.0
+        }) { _ in
+            indicator.isHidden = true
+            indicator.layer.removeAnimation(forKey: "rotationAnimation") // Stop animation
+            print("AI thinking indicator hidden and animation stopped.")
+        }
+    }
 
     // --- AI Logic (performAiTurn, performSimpleAiMove, performStandardAiMove, performHardAiMove, helpers) ---
     // --- NEW: Helper specifically for Medium AI's Open Three detection ---
@@ -1513,117 +2052,247 @@ class ViewController: UIViewController {
         let winner = checkForWinner(on: board)
         if winner == aiState { return WIN_SCORE }
         if winner == humanState { return LOSE_SCORE }
-        let emptyCells = findEmptyCells(on: board)
+        let emptyCells = findEmptyCells(on: board) // Keep for use
         if emptyCells.isEmpty { return DRAW_SCORE }
 
-        // --- Check 2: IMMINENT OPPONENT THREATS (Highest Priority Penalty) ---
-        // Does the MINIMIZING player (Human) have a critical threat on THIS board?
-        // Check for Open Four first, as it's more severe than Open Three
-        let humanOpenFourMoves = findMovesCreatingThreat(on: board, for: playerMinimizing, threat: .openFour, emptyCells: emptyCells)
-        if !humanOpenFourMoves.isEmpty {
-            // If human has an OPEN four, this state is immediately losing or near-losing for AI.
-            // print("DEBUG Eval: Human has OPEN four threat -> VERY HIGH PENALTY")
-            // Return a score slightly better than losing immediately, but worse than almost anything else.
-            return LOSE_SCORE + 10 // Penalty significantly worse than creating own threats
+        // --- NEW: Check for EXISTING critical patterns on the board FIRST ---
+        if hasExistingOpenFour(on: board, for: playerMinimizing) { // playerMinimizing is Human
+            // print("DEBUG Eval: Human has EXISTING Open Four -> LOSE_SCORE + 5")
+            return LOSE_SCORE + 5
+        }
+        if hasExistingOpenFour(on: board, for: playerMaximizing) { // playerMaximizing is AI
+            // print("DEBUG Eval: AI has EXISTING Open Four -> WIN_SCORE - 5")
+            return WIN_SCORE - 5 // Or a very high score like SCORE_OPEN_FOUR * 10
+        }
+        // Check for existing Open Threes if they are not immediately countered by AI's own O4/Win potential
+        if hasExistingOpenThree(on: board, for: playerMinimizing) {
+            // If AI cannot make an O4 or win on its next turn, this existing O3 for human is very bad.
+            let aiCanMakeO4Next = !findMovesCreatingThreat(on: board, for: playerMaximizing, threat: .openFour, emptyCells: emptyCells).isEmpty
+            let aiCanWinNext = !findMovesCreatingThreat(on: board, for: playerMaximizing, threat: .five, emptyCells: emptyCells).isEmpty
+            if !aiCanMakeO4Next && !aiCanWinNext {
+                // print("DEBUG Eval: Human has EXISTING Open Three, AI no immediate counter -> -(SCORE_OPEN_THREE * 15)")
+                return -(SCORE_OPEN_THREE * 15) // Stronger penalty than just being able to make one
+            }
+        }
+        if hasExistingOpenThree(on: board, for: playerMaximizing) {
+            // If Human cannot make an O4 or win on their next turn, this existing O3 for AI is very good.
+            let humanCanMakeO4Next = !findMovesCreatingThreat(on: board, for: playerMinimizing, threat: .openFour, emptyCells: emptyCells).isEmpty
+            let humanCanWinNext = !findMovesCreatingThreat(on: board, for: playerMinimizing, threat: .five, emptyCells: emptyCells).isEmpty
+            if !humanCanMakeO4Next && !humanCanWinNext {
+                 // print("DEBUG Eval: AI has EXISTING Open Three, Human no immediate counter -> SCORE_OPEN_THREE * 2")
+                // This bonus will be added to the general score later if not returned early
+            }
         }
 
-        // Check for Human immediate win threat (Five-in-a-row)
-        let humanWinMoves = findMovesCreatingThreat(on: board, for: playerMinimizing, threat: .five, emptyCells: emptyCells)
-         if !humanWinMoves.isEmpty {
-             // Should be caught by checkForWinner, but as a fallback evaluation penalty
-             // print("DEBUG Eval: Human has WIN threat -> LOSE_SCORE")
-             return LOSE_SCORE + 5
-         }
 
-        // Check for Human Open Three Threat (Still very dangerous)
-        let humanOpenThreeMoves = findMovesCreatingThreat(on: board, for: playerMinimizing, threat: .openThree, emptyCells: emptyCells)
-        if !humanOpenThreeMoves.isEmpty {
-            // Give a large, fixed penalty if an Open Three for the opponent exists *on this board*
-             // print("DEBUG Eval: Human has OPEN three threat -> LARGE PENALTY")
-            // This score should be worse than making own Open Three, but better than letting opponent make Open Four
-            return -(SCORE_OPEN_THREE * 10) // e.g., -80000
+        // --- Check 2: IMMINENT OPPONENT THREATS (Moves that CREATE threats) ---
+        let humanCanMakeOpenFour = !findMovesCreatingThreat(on: board, for: playerMinimizing, threat: .openFour, emptyCells: emptyCells).isEmpty
+        if humanCanMakeOpenFour {
+            // print("DEBUG Eval: Human can MAKE Open Four -> LOSE_SCORE + 10")
+            return LOSE_SCORE + 10
+        }
+        let humanCanMakeOpenThree = !findMovesCreatingThreat(on: board, for: playerMinimizing, threat: .openThree, emptyCells: emptyCells).isEmpty
+        if humanCanMakeOpenThree {
+            // print("DEBUG Eval: Human can MAKE Open Three -> -(SCORE_OPEN_THREE * 10)")
+            return -(SCORE_OPEN_THREE * 10)
         }
 
-        // --- Check 3: IMMINENT AI THREATS (Highest Priority Bonus) ---
-        // Does the MAXIMIZING player (AI) have a critical threat on THIS board?
-         let aiOpenFourMoves = findMovesCreatingThreat(on: board, for: playerMaximizing, threat: .openFour, emptyCells: emptyCells)
-         if !aiOpenFourMoves.isEmpty {
-             // If AI has an open four, this state is extremely good
-             // print("DEBUG Eval: AI has OPEN four threat -> HIGH BONUS")
-             return SCORE_OPEN_FOUR * 2 // Return large bonus immediately
+        // --- Check 3: IMMINENT AI THREATS (Moves that CREATE threats) ---
+         let aiCanMakeOpenFour = !findMovesCreatingThreat(on: board, for: playerMaximizing, threat: .openFour, emptyCells: emptyCells).isEmpty
+         if aiCanMakeOpenFour {
+             // print("DEBUG Eval: AI can MAKE Open Four -> SCORE_OPEN_FOUR * 2")
+             return SCORE_OPEN_FOUR * 2
          }
-         // Check for AI immediate win threat (Five-in-a-row)
-         let aiWinMoves = findMovesCreatingThreat(on: board, for: playerMaximizing, threat: .five, emptyCells: emptyCells)
-          if !aiWinMoves.isEmpty {
-               // print("DEBUG Eval: AI has WIN threat -> WIN_SCORE")
-              return WIN_SCORE - 5 // Should be caught by checkForWinner, but included for completeness
-          }
-         // Check for AI Open Three
-         let aiOpenThreeMoves = findMovesCreatingThreat(on: board, for: playerMaximizing, threat: .openThree, emptyCells: emptyCells)
-          let aiHasOpenThree = !aiOpenThreeMoves.isEmpty // Flag if AI has one
+         let aiCanMakeOpenThree = !findMovesCreatingThreat(on: board, for: playerMaximizing, threat: .openThree, emptyCells: emptyCells).isEmpty
+         // aiCanMakeOpenThree flag is used later if we don't return early
 
-        // --- Check 4: General Line Evaluation (If no immediate critical threats detected above) ---
-        var aiScore = 0
-        var humanScore = 0
+        // --- Check 4: General Line Evaluation ---
+        var aiScoreFromPatterns = 0
+        var humanScoreFromPatterns = 0
         let lines = getAllLines(on: board)
 
         for line in lines {
-            // Evaluate based on minor patterns (Closed Fours, Closed Threes, Twos)
-            aiScore += evaluateLineForMinorThreats(line: line, for: playerMaximizing)
-            humanScore += evaluateLineForMinorThreats(line: line, for: playerMinimizing)
+            // Pass board for context if needed by evaluateLineForPatternScores in future
+            aiScoreFromPatterns += evaluateLineForPatternScores(line: line, for: playerMaximizing)
+            humanScoreFromPatterns += evaluateLineForPatternScores(line: line, for: playerMinimizing)
         }
 
-        // Basic positional score difference
-        var totalScore = aiScore - humanScore // Remove multiplier for minor threats for now
+        var totalScore = aiScoreFromPatterns - humanScoreFromPatterns
 
-        // Add a bonus if AI had an Open Three (since we didn't return early for it)
-        if aiHasOpenThree {
-             // print("DEBUG Eval: Adding AI Open Three Bonus to positional score")
-            totalScore += SCORE_OPEN_THREE // Add the standard Open Three score
+        // Add bonus for AI's *existing* Open Three if not countered and not returned early
+        if hasExistingOpenThree(on: board, for: playerMaximizing) {
+            let humanCanMakeO4Next = !findMovesCreatingThreat(on: board, for: playerMinimizing, threat: .openFour, emptyCells: emptyCells).isEmpty
+            let humanCanWinNext = !findMovesCreatingThreat(on: board, for: playerMinimizing, threat: .five, emptyCells: emptyCells).isEmpty
+            if !humanCanMakeO4Next && !humanCanWinNext {
+                totalScore += SCORE_OPEN_THREE * 2 // Add bonus for existing, uncountered O3
+            }
+        }
+        // Add bonus if AI *can make* an Open Three and we didn't return early for it
+        else if aiCanMakeOpenThree {
+            totalScore += SCORE_OPEN_THREE
         }
 
         return totalScore
     }
 
-    // --- NEW Helper: Evaluate only minor threats for general scoring ---
-    func evaluateLineForMinorThreats(line: [CellState], for player: Player) -> Int {
+    // NEW Helper function to check for existing Open Four
+    func hasExistingOpenFour(on boardToCheck: [[CellState]], for player: Player) -> Bool {
+        let playerState = state(for: player)
+        let lines = getAllLines(on: boardToCheck)
+        for line in lines {
+            if line.count < 6 { continue } // Need space for _ P P P P _
+            for i in 0...(line.count - 6) {
+                if line[i] == .empty &&
+                   line[i+1] == playerState &&
+                   line[i+2] == playerState &&
+                   line[i+3] == playerState &&
+                   line[i+4] == playerState &&
+                   line[i+5] == .empty {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    // NEW Helper function to check for existing Open Three
+    func hasExistingOpenThree(on boardToCheck: [[CellState]], for player: Player) -> Bool {
+        let playerState = state(for: player)
+        let lines = getAllLines(on: boardToCheck)
+        for line in lines {
+            if line.count < 5 { continue } // Need space for _ P P P _
+            for i in 0...(line.count - 5) {
+                if line[i] == .empty &&
+                   line[i+1] == playerState &&
+                   line[i+2] == playerState &&
+                   line[i+3] == playerState &&
+                   line[i+4] == .empty {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    // RENAMED from evaluateLineForMinorThreats
+    // This function will now score Open Threes, Closed Fours, Closed Threes, and Twos directly from patterns.
+    // Open Fours are handled by hasExistingOpenFour.
+    func evaluateLineForPatternScores(line: [CellState], for player: Player) -> Int {
         let playerState = state(for: player)
         let opponentState = state(for: opponent(of: player))
         var score = 0
         let n = line.count
 
-        for i in 0...(n - 5) {
-             let window5 = Array(line[i..<(i + 5)])
-             var pCount = 0
-             var eCount = 0
-             for cell in window5 {
-                  if cell == playerState { pCount += 1 }
-                  else if cell == .empty { eCount += 1 }
-             }
+        // Note: hasExistingOpenThree and hasExistingOpenFour already cover these checks globally.
+        // This function should focus on threats not already covered by the immediate high-priority checks in evaluateBoard.
+        // Specifically, Closed Fours, Closed Threes, and Twos.
+        // Open Threes are scored by hasExistingOpenThree and added to totalScore if applicable.
 
-            // Ignore if opponent blocks the window
-             if window5.contains(opponentState) { continue }
+        // Check for Closed Four: XPPPP_ or _PPPPX or EPPPPX or XPPPPE (where X is opponent or edge)
+        if n >= 5 {
+            for i in 0...(n - 5) { // Window of 5: P P P P E or E P P P P
+                let window5 = Array(line[i..<(i + 5)])
+                var pCount = 0
+                var eCount = 0
+                for cell_idx in 0..<5 {
+                    let cell = window5[cell_idx]
+                    if cell == playerState { pCount += 1 }
+                    else if cell == .empty { eCount += 1 }
+                    else if cell == opponentState { pCount = -1; break } // Opponent blocks within the 5, invalidate
+                }
+                if pCount == -1 { continue }
 
-            let stateBefore: CellState? = (i > 0) ? line[i-1] : opponentState
-            let stateAfter: CellState? = (i + 5 < n) ? line[i+5] : opponentState
-            let isOpenBefore = stateBefore == .empty
-            let isOpenAfter = stateAfter == .empty
 
-            // Score only CLOSED Fours, CLOSED Threes, and Twos here
-            if pCount == 4 && eCount == 1 { // PPPP_ or _PPPP etc.
-                 if isOpenBefore || isOpenAfter { score += SCORE_CLOSED_FOUR } // Only score if it's a closed four
-            } else if pCount == 3 && eCount == 2 { // PPP__ or _PPP_ etc.
-                 if isOpenBefore || isOpenAfter { // Exclude Open Three (handled separately)
-                      if !(isOpenBefore && isOpenAfter) { score += SCORE_CLOSED_THREE }
+                if pCount == 4 && eCount == 1 { // Potential PPPP_ or _PPPP
+                    // Context for the 5-cell window: line[i-1] and line[i+5]
+                    let beforeIsPlayer = (i > 0 && line[i-1] == playerState)
+                    let afterIsPlayer = (i + 5 < n && line[i+5] == playerState)
+
+                    // Avoid double counting parts of a 5-in-a-row (already handled by WIN_SCORE)
+                    if beforeIsPlayer || afterIsPlayer { continue }
+
+
+                    let beforeIsEmpty = (i == 0 || line[i-1] == .empty)
+                    let beforeIsOpponent = (i > 0 && line[i-1] == opponentState)
+
+                    let afterIsEmpty = (i + 5 == n || line[i+5] == .empty)
+                    let afterIsOpponent = (i + 5 < n && line[i+5] == opponentState)
+
+                    // A closed four requires one side to be blocked (opponent or edge) and the other side to be open (empty).
+                    if (beforeIsEmpty && (afterIsOpponent || i + 5 == n)) ||
+                       (afterIsEmpty && (beforeIsOpponent || i == 0)) {
+                        score += SCORE_CLOSED_FOUR
+                    }
+                }
+            }
+        }
+
+        // Check for Closed Three: XPPP_E or E_PPPX (where X is opponent or edge)
+        if n >= 5 {
+             for i in 0...(n - 5) { // Window of 5
+                 let window5 = Array(line[i..<(i + 5)])
+                 var pCount = 0
+                 var eCount = 0
+                 for cell_idx in 0..<5 {
+                    let cell = window5[cell_idx]
+                    if cell == playerState { pCount += 1 }
+                    else if cell == .empty { eCount += 1 }
+                    else if cell == opponentState { pCount = -1; break } // Opponent blocks within the 5
                  }
-            } else if pCount == 2 && eCount == 3 { // PP___ etc.
-                 if isOpenBefore && isOpenAfter { score += SCORE_OPEN_TWO }
-                 else if isOpenBefore || isOpenAfter { score += SCORE_CLOSED_TWO }
+                 if pCount == -1 { continue }
+
+                 if pCount == 3 && eCount == 2 { // Potential PPP_ _ or _ PPP _ or _ _ PPP
+                     // This is an open three if context is E _PPP_ E, handled by hasExistingOpenThree.
+                     // We are looking for X _PPP_ E or E _PPP_ X.
+                     let beforeIsEmpty = (i == 0 || line[i-1] == .empty)
+                     let beforeIsOpponent = (i > 0 && line[i-1] == opponentState)
+
+                     let afterIsEmpty = (i + 5 == n || line[i+5] == .empty)
+                     let afterIsOpponent = (i + 5 < n && line[i+5] == opponentState)
+
+                     if (beforeIsEmpty && (afterIsOpponent || i + 5 == n)) ||
+                        (afterIsEmpty && (beforeIsOpponent || i == 0)) {
+                         // Check if it's NOT an open three (E _PPP_ E)
+                         if !(beforeIsEmpty && afterIsEmpty) {
+                            score += SCORE_CLOSED_THREE
+                         }
+                     }
+                 }
+             }
+        }
+
+        // Check for Twos (Open and Closed)
+        // Pattern: E P P E _ (Open Two) or X P P E _ (Closed Two)
+        if n >= 4 { // Need at least E P P E
+            for i in 0...(n - 4) {
+                let p1 = line[i+1]
+                let p2 = line[i+2]
+
+                if p1 == playerState && p2 == playerState {
+                    // Have P P at i+1, i+2
+                    let before = line[i]
+                    let after = line[i+3]
+
+                    if before == .empty && after == .empty {
+                        // E P P E
+                        // Check one more further out for _ E P P E _
+                        let beforeBeforeIsEmpty = (i == 0 || line[i-1] == .empty)
+                        let afterAfterIsEmpty = (i+4 == n || line[i+4] == .empty)
+                        if beforeBeforeIsEmpty && afterAfterIsEmpty { // Prefer _E P P E_ for open two
+                             score += SCORE_OPEN_TWO
+                        } else { // E P P E counts as closed if not fully open
+                             score += SCORE_CLOSED_TWO
+                        }
+                    } else if before == .empty || after == .empty {
+                        // X P P E or E P P X
+                        score += SCORE_CLOSED_TWO
+                    }
+                }
             }
         }
         return score
     }
-    
+
     // --- REVISED V6: Helper for Static Move Evaluation (Move Ordering + Threat Mitigation) ---
     // Assigns a score for sorting moves, prioritizing critical actions.
     // Higher score = higher priority in the search.
@@ -1759,7 +2428,7 @@ class ViewController: UIViewController {
         return lines
     }
      enum ThreatType: Int { case five = 10000; case openFour = 5000; case closedFour = 450; case openThree = 400; case closedThree = 50 }
-     func placeAiPieceAndEndTurn(at position: Position) { guard checkBounds(row: position.row, col: position.col) && board[position.row][position.col] == .empty else { print("!!! AI INTERNAL ERROR: placeAiPieceAndEndTurn called with invalid position \(position). Current: \(board[position.row][position.col])"); let recoveryMove = findEmptyCells(on: self.board).randomElement(); if let move = recoveryMove { print("!!! AI RECOVERY: Placing random piece at \(move) instead."); placePiece(atRow: move.row, col: move.col) } else { print("!!! AI RECOVERY FAILED: No empty cells left?"); view.isUserInteractionEnabled = true }; return }; placePiece(atRow: position.row, col: position.col) }
+    func placeAiPieceAndEndTurn(at position: Position) { guard checkBounds(row: position.row, col: position.col) && board[position.row][position.col] == .empty else { print("!!! AI INTERNAL ERROR: placeAiPieceAndEndTurn called with invalid position \(position). Current: \(board[position.row][position.col])"); let recoveryMove = findEmptyCells(on: self.board).randomElement(); if let move = recoveryMove { print("!!! AI RECOVERY: Placing random piece at \(move) instead."); placePiece(atRow: move.row, col: move.col) } else { print("!!! AI RECOVERY FAILED: No empty cells left?"); view.isUserInteractionEnabled = true }; return }; playSound(key: "place"); softImpactFeedbackGenerator.impactOccurred(); placePiece(atRow: position.row, col: position.col) }
     func checkPotentialWin(player: Player, position: Position, on boardToCheck: [[CellState]]) -> Bool {
         var tempBoard = boardToCheck;
         guard checkBounds(row: position.row, col: position.col) && tempBoard[position.row][position.col] == .empty else { return false };
@@ -1852,15 +2521,15 @@ class ViewController: UIViewController {
 
         let shapeLayer = CAShapeLayer()
         shapeLayer.path = path.cgPath
-        shapeLayer.strokeColor = UIColor.red.withAlphaComponent(0.9).cgColor // Slightly less transparent
-        shapeLayer.lineWidth = 6.0 // <-- Increased thickness
+        shapeLayer.strokeColor = UIColor.red.withAlphaComponent(0.88).cgColor // Slightly less transparent
+        shapeLayer.lineWidth = 5.5 // <-- Increased thickness
         shapeLayer.lineCap = .round
         shapeLayer.lineJoin = .round
         shapeLayer.name = "winningLine"
-        shapeLayer.shadowColor = UIColor.black.withAlphaComponent(0.5).cgColor // Add shadow to line
-        shapeLayer.shadowOffset = CGSize(width: 0, height: 1)
-        shapeLayer.shadowRadius = 2
-        shapeLayer.shadowOpacity = 1.0
+        shapeLayer.shadowColor = UIColor.black.withAlphaComponent(0.4).cgColor // NEW: Softer shadow
+        shapeLayer.shadowOffset = CGSize(width: 0, height: 1.5) // NEW
+        shapeLayer.shadowRadius = 2.5 // NEW
+        shapeLayer.shadowOpacity = 0.8 // NEW
 
         // Animate the line drawing
         shapeLayer.strokeEnd = 0.0
@@ -1869,7 +2538,7 @@ class ViewController: UIViewController {
         let animation = CABasicAnimation(keyPath: "strokeEnd")
         animation.fromValue = 0.0
         animation.toValue = 1.0
-        animation.duration = 0.4 // Slightly faster draw
+        animation.duration = 0.35 // Slightly faster
         animation.timingFunction = CAMediaTimingFunction(name: .easeOut) // Ease out feels better here
         shapeLayer.strokeEnd = 1.0
         shapeLayer.add(animation, forKey: "drawLineAnimation")
@@ -1877,11 +2546,11 @@ class ViewController: UIViewController {
         print("Winning line drawn.")
 
         // --- MODIFIED: Highlight Winning Pieces ---
-        let pulseDuration = 0.3
+        let pulseDuration = 0.25
         let numberOfPulses = 3 // How many times to pulse
 
         // Small delay to let the line draw first
-        DispatchQueue.main.asyncAfter(deadline: .now() + animation.duration * 0.8) { [weak self] in // Start slightly before line finishes
+        DispatchQueue.main.asyncAfter(deadline: .now() + animation.duration * 0.7) { [weak self] in // Start slightly before line finishes
             guard let self = self else { return }
             for position in positions {
                 if self.checkBounds(row: position.row, col: position.col),
@@ -1891,13 +2560,19 @@ class ViewController: UIViewController {
                     pieceView.layer.removeAllAnimations()
                     pieceView.transform = .identity
                     pieceView.alpha = 1.0
+                    pieceView.layer.zPosition = 100
 
                     // Pulse animation
-                    UIView.animate(withDuration: pulseDuration, delay: 0, options: [.allowUserInteraction, .curveEaseInOut], animations: {
-                        // Animate multiple times within the block
-                        UIView.modifyAnimations(withRepeatCount: CGFloat(numberOfPulses), autoreverses: true) {
-                            pieceView.transform = CGAffineTransform(scaleX: 1.15, y: 1.15)
-                            pieceView.alpha = 0.7
+                    UIView.animateKeyframes(withDuration: pulseDuration * Double(numberOfPulses), delay: 0, options: [.calculationModeLinear, .allowUserInteraction], animations: {
+                        for i in 0..<numberOfPulses {
+                            UIView.addKeyframe(withRelativeStartTime: Double(i) / Double(numberOfPulses), relativeDuration: 0.5 / Double(numberOfPulses)) {
+                                pieceView.transform = CGAffineTransform(scaleX: 1.20, y: 1.20) // Slightly larger pulse
+                                pieceView.alpha = 0.65
+                            }
+                            UIView.addKeyframe(withRelativeStartTime: (Double(i) + 0.5) / Double(numberOfPulses), relativeDuration: 0.5 / Double(numberOfPulses)) {
+                                pieceView.transform = .identity
+                                pieceView.alpha = 1.0
+                            }
                         }
                     }) { _ in
                         // Completion block ensures it returns to normal *after* the pulses
@@ -1908,6 +2583,7 @@ class ViewController: UIViewController {
                                 pieceView.layer.removeAllAnimations() // Clean up just in case
                                 pieceView.transform = .identity
                                 pieceView.alpha = 1.0
+                                 pieceView.layer.zPosition = 0 // Reset zPosition
                              }
                         }
                     }
@@ -1925,7 +2601,7 @@ class ViewController: UIViewController {
     @IBAction func resetButtonTapped(_ sender: UIButton) {
         print("Reset button DOWN")
         animateButtonDown(sender)
-        impactFeedbackGenerator.impactOccurred() // Haptic feedback
+        lightImpactFeedbackGenerator.impactOccurred() // Haptic feedback
         sender.transform = .identity
         // Add release/cancel targets (needed because this is TouchDown)
         sender.addTarget(self, action: #selector(resetButtonReleased(_:)), for: .touchUpInside)
