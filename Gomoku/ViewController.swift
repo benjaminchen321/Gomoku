@@ -2,11 +2,20 @@ import UIKit
 import AVFoundation // <-- Import AVFoundation for audio
 
 class ViewController: UIViewController {
+    struct Position: Hashable, Equatable { var row: Int; var col: Int }
+    struct MoveRecord {
+        let position: Position
+        let player: Player // The player who made this move
+    }
+    private var moveHistory: [MoveRecord] = []
 
     // --- Outlets ---
     @IBOutlet weak var statusLabel: UILabel!
     @IBOutlet weak var boardView: UIView!
     @IBOutlet weak var resetButton: UIButton!
+    private let undoButton = UIButton(type: .system)
+    private let undoStatusLabel = UILabel()
+
 
     // --- Game Constants ---
     let boardSize = 15
@@ -20,6 +29,9 @@ class ViewController: UIViewController {
     var board: [[CellState]] = []
     var gameOver = false
     var pieceViews: [[UIView?]] = []
+    private var undoActionUsedThisGame: Bool = false
+    let undoRuleInfoShownKey = "hasShownGomokuUndoRuleInfoBanner" // Renamed for clarity
+
 
     // --- Adaptive Setup UI Properties ---
     private var setupPortraitConstraints: [NSLayoutConstraint] = []
@@ -69,8 +81,9 @@ class ViewController: UIViewController {
     private let startHardAIButton = UIButton(type: .system) // ADD HARD AI BUTTON BACK
     private let startHvsHButton = UIButton(type: .system)
     private var setupUIElements: [UIView] = []
-    private let moveCountLabel = UILabel() // <-- ADD
+    private let moveCountLabel = UILabel()
     private var moveCount = 0
+    private var infoBannerView: UIView?
 
     // --- Main Menu Button ---
     private let mainMenuButton = UIButton(type: .system)
@@ -115,6 +128,8 @@ class ViewController: UIViewController {
         styleStatusLabel()
         boardView.backgroundColor = .clear
         styleResetButton()
+        createUndoButtonAndStatusLabel()
+        createUndoButtonAndStatusLabel()
         createMainMenuButton()
         createSetupUI()
         createNewGameOverUI()
@@ -540,6 +555,10 @@ class ViewController: UIViewController {
         moveCountLabel.isHidden = true
         gameOverOverlayView.isHidden = true
         turnIndicatorView?.isHidden = true
+        undoButton.isHidden = true
+        undoStatusLabel.isHidden = true
+        moveHistory.removeAll()
+        updateUndoButtonState()
         hideAiThinkingIndicator() // <-- NEW: Hide AI indicator
         currentGameState = .setup
         setupMainBackground()
@@ -566,14 +585,16 @@ class ViewController: UIViewController {
         currentGameState = .playing // Set state BEFORE setting up background
         setupMainBackground()      // <-- ADD: Refresh background for game
 
-
-        let gameElementsToShow = [statusLabel, boardView, resetButton, mainMenuButton, moveCountLabel] // Add move count label
+        
+        let gameElementsToShow: [UIView?] = [statusLabel, boardView, resetButton, mainMenuButton, moveCountLabel, undoButton, undoStatusLabel] // <<< MODIFIED: Added undoButton
 
         // Transition TO Game UI
         UIView.transition(with: self.view, duration: 0.35, options: .transitionCrossDissolve, animations: {
             gameElementsToShow.forEach { $0?.isHidden = false } // Use optional chaining for outlets
             self.turnIndicatorView?.isHidden = false
             self.currentGameState = .playing // Set state during animation
+            self.undoButton.isHidden = false
+            self.updateUndoButtonState()
         }, completion: { [weak self] _ in
             guard let self = self else { return }
             print("showGameUI transition complete.")
@@ -586,6 +607,28 @@ class ViewController: UIViewController {
                 self.updateTurnIndicatorLine()
             }
         })
+    }
+    
+    private func setupUndoStatusLabel() {
+        undoStatusLabel.translatesAutoresizingMaskIntoConstraints = false
+        undoStatusLabel.font = UIFont.systemFont(ofSize: 12, weight: .regular) // Smaller font
+        undoStatusLabel.textColor = UIColor.darkGray.withAlphaComponent(0.8)
+        undoStatusLabel.textAlignment = .left
+        view.addSubview(undoStatusLabel) // Add to view hierarchy
+
+        // Constraints for undoStatusLabel (e.g., to the left or right of undoButton)
+        // Assuming undoButton is to the right of this label:
+        guard let undoButton = self.undoButton as? UIButton, undoButton.superview != nil else { // Ensure undoButton exists and is in hierarchy
+            print("Undo button not ready for status label constraints.")
+            return
+        }
+
+        NSLayoutConstraint.activate([
+            undoStatusLabel.centerYAnchor.constraint(equalTo: undoButton.centerYAnchor),
+            // Place it to the left of the undo button
+            undoStatusLabel.trailingAnchor.constraint(equalTo: undoButton.leadingAnchor, constant: -6), // Small spacing
+        ])
+        print("Undo Status Label created and constrained.")
     }
     
     // Helper enum for clarity
@@ -802,6 +845,91 @@ class ViewController: UIViewController {
              DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in self?.performAiTurn() }
          }
     }
+    
+    func createUndoButtonAndStatusLabel() {
+        print("Creating Undo Button")
+        undoButton.translatesAutoresizingMaskIntoConstraints = false
+        if #available(iOS 15.0, *) {
+            var config = UIButton.Configuration.filled()
+            config.image = UIImage(systemName: "arrow.uturn.backward.circle.fill")
+            config.baseBackgroundColor = UIColor(red: 0.85, green: 0.88, blue: 0.92, alpha: 1.0) // A distinct shade
+            config.baseForegroundColor = UIColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1.0)
+            config.cornerStyle = .medium
+            config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12)
+            undoButton.configuration = config
+        } else {
+            undoButton.setImage(UIImage(systemName: "arrow.uturn.backward.circle.fill"), for: .normal)
+            undoButton.tintColor = UIColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1.0)
+            undoButton.backgroundColor = UIColor(red: 0.85, green: 0.88, blue: 0.92, alpha: 1.0)
+            undoButton.layer.cornerRadius = 8
+            undoButton.contentEdgeInsets = UIEdgeInsets(top: 8, left: 10, bottom: 8, right: 10)
+        }
+        undoButton.accessibilityLabel = "Undo Last Move"
+        undoButton.layer.shadowColor = UIColor.black.cgColor
+        undoButton.layer.shadowOffset = CGSize(width: 0, height: 1)
+        undoButton.layer.shadowRadius = 2.5
+        undoButton.layer.shadowOpacity = 0.12
+        undoButton.layer.masksToBounds = false
+
+        undoButton.addTarget(self, action: #selector(undoButtonTapped(_:)), for: .touchUpInside)
+        undoButton.addTarget(self, action: #selector(buttonTouchDown(_:)), for: .touchDown)
+        undoButton.addTarget(self, action: #selector(buttonTouchDragExit(_:)), for: .touchDragExit)
+        undoButton.addTarget(self, action: #selector(buttonTouchDragEnter(_:)), for: .touchDragEnter)
+        undoButton.addTarget(self, action: #selector(buttonTouchCancel(_:)), for: .touchCancel)
+        // Add a generic up handler to ensure animation completes
+        undoButton.addTarget(self, action: #selector(buttonReleased(_:)), for: .touchUpInside)
+        undoButton.addTarget(self, action: #selector(buttonReleased(_:)), for: .touchUpOutside)
+
+        view.addSubview(undoButton)
+        setupUndoButtonConstraints()
+        
+        // --- Setup Undo Status Label ---
+        print("Creating Undo Status Label")
+        undoStatusLabel.translatesAutoresizingMaskIntoConstraints = false
+        undoStatusLabel.font = UIFont.systemFont(ofSize: 12, weight: .regular)
+        undoStatusLabel.textColor = UIColor.systemGray // Subtle color
+        undoStatusLabel.textAlignment = .left // Or .right if you place it on the other side
+        view.addSubview(undoStatusLabel)
+
+        // Constraints for undoStatusLabel relative to undoButton
+        NSLayoutConstraint.activate([
+            undoStatusLabel.centerYAnchor.constraint(equalTo: undoButton.centerYAnchor, constant: 1), // Slight offset if needed for alignment
+            undoStatusLabel.trailingAnchor.constraint(equalTo: undoButton.leadingAnchor, constant: -8), // Spacing
+            // Optional: constraint to prevent it from being too wide if text is unexpectedly long
+            // undoStatusLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 80)
+        ])
+        // --- End Setup Undo Status Label ---
+        
+        updateUndoButtonState() // Initial state update
+    }
+    
+    
+    // Add this generic handler if you don't have one for all buttons
+    @objc private func buttonReleased(_ sender: UIButton) {
+        animateButtonUp(sender)
+    }
+
+
+    // --- NEW: Undo Button Setup and Constraints ---
+    // (Place this function before createUndoButton or ensure it's accessible)
+    private func setupUndoButtonConstraints() {
+        // Ensure constraints are only added once and resetButton is available
+        guard !self.view.constraints.contains(where: { $0.firstItem === undoButton || $0.secondItem === undoButton }),
+              let resetButton = resetButton else {
+            if self.resetButton == nil {
+                print("Error: Reset button is nil, cannot constrain Undo button relative to it yet.")
+            }
+            return
+        }
+        print("Setting up Undo Button constraints")
+        NSLayoutConstraint.activate([
+            undoButton.centerYAnchor.constraint(equalTo: resetButton.centerYAnchor),
+            undoButton.trailingAnchor.constraint(equalTo: resetButton.leadingAnchor, constant: -15),
+            // Let intrinsic content size determine width/height based on icon and padding
+        ])
+        print("Undo Button constraints activated.")
+    }
+
 
     // --- Styling Functions ---
     // --- NEW: Move Count Label Setup ---
@@ -898,7 +1026,8 @@ class ViewController: UIViewController {
             let grainWidth = CGFloat.random(in: 1.5...4.0); let grainX = CGFloat.random(in: 0...(boardWidth - grainWidth)); grainLayer.frame = CGRect(x: grainX, y: 0, width: grainWidth, height: boardHeight); baseLayer.addSublayer(grainLayer) }; let lightingGradient = CAGradientLayer(); lightingGradient.frame = boardView.bounds; lightingGradient.cornerRadius = baseLayer.cornerRadius; lightingGradient.type = .radial; lightingGradient.colors = [UIColor(white: 1.0, alpha: 0.15).cgColor, UIColor(white: 1.0, alpha: 0.0).cgColor, UIColor(white: 0.0, alpha: 0.15).cgColor]; lightingGradient.locations = [0.0, 0.6, 1.0]; lightingGradient.startPoint = CGPoint(x: 0.5, y: 0.5); lightingGradient.endPoint = CGPoint(x: 1.0, y: 1.0); baseLayer.addSublayer(lightingGradient); baseLayer.borderWidth = 1.5; baseLayer.borderColor = UIColor(red: 0.2, green: 0.15, blue: 0.1, alpha: 0.85).cgColor }
     func drawBoard() { /* ... */ boardView.layer.sublayers?.filter { $0.name == "gridLine" }.forEach { $0.removeFromSuperlayer() }; guard cellSize > 0 else { print("Skipping drawBoard: cellSize is 0"); return }; guard woodBackgroundLayers.first != nil else { print("Cannot draw board: Wood background layer not found."); return }; let boardDimension = cellSize * CGFloat(boardSize - 1); let gridLineColor = UIColor(red: 0.35, green: 0.3, blue: 0.25, alpha: 0.55).cgColor; let gridLineWidth: CGFloat = 0.6; for i in 0..<boardSize { let vLayer = CALayer(); let xPos = boardPadding + CGFloat(i) * cellSize; vLayer.frame = CGRect(x: xPos - (gridLineWidth / 2), y: boardPadding, width: gridLineWidth, height: boardDimension); vLayer.backgroundColor = gridLineColor; vLayer.name = "gridLine"; boardView.layer.addSublayer(vLayer); let hLayer = CALayer(); let yPos = boardPadding + CGFloat(i) * cellSize; hLayer.frame = CGRect(x: boardPadding, y: yPos - (gridLineWidth / 2), width: boardDimension, height: gridLineWidth); hLayer.backgroundColor = gridLineColor; hLayer.name = "gridLine"; boardView.layer.addSublayer(hLayer) }; print("Board drawn with cell size: \(cellSize)") }
     func redrawPieces() { /* ... */ guard cellSize > 0 else { print("Skipping redrawPieces: cellSize is 0"); return }; boardView.subviews.forEach { $0.removeFromSuperview() }; pieceViews = Array(repeating: Array(repeating: nil, count: boardSize), count: boardSize); for r in 0..<boardSize { for c in 0..<boardSize { let cellState = board[r][c]; if cellState == .black || cellState == .white { drawPiece(atRow: r, col: c, player: (cellState == .black) ? .black : .white, animate: false) }}} }
-    func drawPiece(atRow row: Int, col: Int, player: Player, animate: Bool = true) { /* ... */
+    
+    func drawPiece(atRow row: Int, col: Int, player: Player, animate: Bool = true) {
         guard cellSize > 0 else { return };
         let pieceSize = cellSize * 0.88;
         let x = boardPadding + CGFloat(col) * cellSize - (pieceSize / 2);
@@ -939,11 +1068,17 @@ class ViewController: UIViewController {
         boardView.addSubview(pieceView);
         pieceViews[row][col] = pieceView;
         if animate {
-            pieceView.alpha = 0.0; pieceView.transform = CGAffineTransform(scaleX: 0.6, y: 0.6);
-            UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.65, initialSpringVelocity: 0.2, options: .curveEaseOut, animations: { // NEW: Slightly softer spring
-                pieceView.alpha = 1.0;
-                pieceView.transform = .identity
-            }, completion: nil)
+            pieceView.alpha = 0.0;
+            pieceView.transform = CGAffineTransform(scaleX: 0.5, y: 0.5);
+             UIView.animate(withDuration: 0.45, // Slightly longer for more noticeable spring
+                            delay: 0,
+                            usingSpringWithDamping: 0.55, // Lower damping = more bounciness
+                            initialSpringVelocity: 0.8,  // Higher initial velocity
+                            options: .curveEaseOut,
+                            animations: {
+                 pieceView.alpha = 1.0;
+                 pieceView.transform = .identity;
+             }, completion: nil)
         } else { pieceView.alpha = 1.0; pieceView.transform = .identity } }
     
     func showLastMoveIndicator(at position: Position) { /* ... */
@@ -1002,7 +1137,7 @@ class ViewController: UIViewController {
 
     // --- Game Logic & Interaction ---
     func setupNewGameVariablesOnly() { /* ... */ currentPlayer = .black; board = Array(repeating: Array(repeating: .empty, count: boardSize), count: boardSize); gameOver = false; pieceViews = Array(repeating: Array(repeating: nil, count: boardSize), count: boardSize); lastWinningPositions = nil }
-    func setupNewGame() { /* ... ADDED RESETcellSize/Bounds */ print("setupNewGame called. Current Mode: \(currentGameMode)"); gameOver = false; currentPlayer = .black; statusLabel.text = "Black's Turn"; board = Array(repeating: Array(repeating: .empty, count: boardSize), count: boardSize); boardView.subviews.forEach { $0.removeFromSuperview() }; boardView.layer.sublayers?.filter { $0.name == "gridLine" || $0.name == "winningLine" || $0.name == "lastMoveIndicator"}.forEach { $0.removeFromSuperlayer() }; woodBackgroundLayers.forEach { $0.removeFromSuperlayer() }; woodBackgroundLayers.removeAll(); winningLineLayer = nil; lastMoveIndicatorLayer = nil; lastMovePosition = nil; lastWinningPositions = nil; moveCount = 0; moveCountLabel.text = "Moves: 0"; pieceViews = Array(repeating: Array(repeating: nil, count: boardSize), count: boardSize); cellSize = 0; lastDrawnBoardBounds = .zero; aiShouldCancelMove = false; updateTurnIndicatorLine(); turnIndicatorView?.isHidden = false; print("setupNewGame: Reset game state. Requesting layout update."); view.setNeedsLayout() }
+    func setupNewGame() { /* ... ADDED RESETcellSize/Bounds */ print("setupNewGame called. Current Mode: \(currentGameMode)"); gameOver = false; currentPlayer = .black; statusLabel.text = "Black's Turn"; board = Array(repeating: Array(repeating: .empty, count: boardSize), count: boardSize); boardView.subviews.forEach { $0.removeFromSuperview() }; boardView.layer.sublayers?.filter { $0.name == "gridLine" || $0.name == "winningLine" || $0.name == "lastMoveIndicator"}.forEach { $0.removeFromSuperlayer() }; woodBackgroundLayers.forEach { $0.removeFromSuperlayer() }; woodBackgroundLayers.removeAll(); winningLineLayer = nil; lastMoveIndicatorLayer = nil; lastMovePosition = nil; lastWinningPositions = nil; moveCount = 0; moveCountLabel.text = "Moves: 0"; pieceViews = Array(repeating: Array(repeating: nil, count: boardSize), count: boardSize); cellSize = 0; lastDrawnBoardBounds = .zero; aiShouldCancelMove = false; updateTurnIndicatorLine(); turnIndicatorView?.isHidden = false; undoActionUsedThisGame = false; updateUndoButtonState(); print("setupNewGame: Reset game state. Requesting layout update."); view.setNeedsLayout() }
     func calculateCellSize() -> CGFloat { /* ... */ guard boardView.bounds.width > 0, boardView.bounds.height > 0 else { return 0 }; let boardDimension = min(boardView.bounds.width, boardView.bounds.height) - (boardPadding * 2); guard boardSize > 1 else { return boardDimension }; let size = boardDimension / CGFloat(boardSize - 1); return max(0, size) }
     func addTapGestureRecognizer() { /* ... */ guard let currentBoardView = boardView else { print("FATAL ERROR: boardView outlet is NIL..."); return }; currentBoardView.gestureRecognizers?.forEach { currentBoardView.removeGestureRecognizer($0) }; let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:))); currentBoardView.addGestureRecognizer(tap); }
     
@@ -1023,6 +1158,8 @@ class ViewController: UIViewController {
         guard currentGameState == .playing else { return }
         guard !gameOver, cellSize > 0 else { return }
         guard !isAiTurn else { print("Tap ignored: It's AI's turn."); return }
+        
+        aiShouldCancelMove = false
 
         let location = sender.location(in: boardView)
         let playableWidth = cellSize * CGFloat(boardSize - 1); let playableHeight = cellSize * CGFloat(boardSize - 1)
@@ -1073,6 +1210,9 @@ class ViewController: UIViewController {
         moveCountLabel.text = "Moves: \(moveCount)"
 
         let piecePlayer = currentPlayer
+        let moveRecord = MoveRecord(position: Position(row: row, col: col), player: piecePlayer)
+        moveHistory.append(moveRecord)
+
         if isAiTurn && !gameOver { // isAiTurn reflects whose turn it *was* when AI decided the move
             playSound(key: "place") // AI also makes a sound
             softImpactFeedbackGenerator.impactOccurred() // Haptic for AI piece
@@ -1085,6 +1225,8 @@ class ViewController: UIViewController {
         self.lastMovePosition = currentPosition
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in self?.showLastMoveIndicator(at: currentPosition) }
 
+        updateUndoButtonState()
+        
         if let winningPositions = findWinningLine(playerState: pieceState, lastRow: row, lastCol: col) {
             gameOver = true; self.lastWinningPositions = winningPositions
             updateTurnIndicatorLine()
@@ -1106,7 +1248,7 @@ class ViewController: UIViewController {
             lastMoveIndicatorLayer?.removeFromSuperlayer()
             lastMoveIndicatorLayer = nil
             hideAiThinkingIndicator() // <-- NEW: Hide indicator on game over
-
+            updateUndoButtonState()
         } else if isBoardFull() {
             gameOver = true; updateTurnIndicatorLine()
             statusLabel.text = "Draw!"; print("Draw!")
@@ -1118,19 +1260,233 @@ class ViewController: UIViewController {
             lastMoveIndicatorLayer?.removeFromSuperlayer()
             lastMoveIndicatorLayer = nil
             hideAiThinkingIndicator() // <-- NEW: Hide indicator on game over
-
+            updateUndoButtonState()
         } else {
             switchPlayer() // Only switch if game not over
         }
     }
 
+    func updateUndoButtonState() {
+        let canUndoOverall: Bool
+        // Explicitly check if we are in the .playing state and game is not over
+        let isGameActiveAndUndoPossible = (currentGameState == .playing && !gameOver)
+
+        if isGameActiveAndUndoPossible && !undoActionUsedThisGame {
+            canUndoOverall = true
+            undoStatusLabel.text = "(1 left)"
+            undoStatusLabel.textColor = UIColor.systemGray // Normal color when available
+            undoStatusLabel.isHidden = false
+            undoButton.isHidden = false
+        } else if isGameActiveAndUndoPossible && undoActionUsedThisGame {
+            canUndoOverall = false // Cannot undo (used), but game is active
+            undoStatusLabel.text = "(Used)"
+            undoStatusLabel.textColor = UIColor.systemGray3 // More faded when used
+            undoStatusLabel.isHidden = false
+            undoButton.isHidden = false // Button still visible but will be disabled
+        } else {
+            // This block covers:
+            // - currentGameState == .setup
+            // - currentGameState == .playing && gameOver == true
+            canUndoOverall = false
+            undoStatusLabel.text = "" // Clear text
+            undoStatusLabel.isHidden = true
+            undoButton.isHidden = true
+        }
+
+        undoButton.isEnabled = canUndoOverall
+
+        UIView.animate(withDuration: 0.2) {
+            // Alpha for the button itself, only fully opaque if truly usable
+            self.undoButton.alpha = (canUndoOverall && isGameActiveAndUndoPossible && !self.undoActionUsedThisGame) ? 1.0 : 0.4
+        }
+    }
+
+
+    // Helper function to create and show the banner
+    private func showUndoRuleInfoBanner() {
+        // Prevent multiple banners
+        guard self.infoBannerView == nil else { return }
+
+        let bannerHeight: CGFloat = 50 // Adjust as needed
+        let bannerWidth: CGFloat = view.bounds.width * 0.8
+        let bannerX = (view.bounds.width - bannerWidth) / 2
+        // Position it below the status label or top safe area
+        let bannerY: CGFloat = view.safeAreaInsets.top + (statusLabel.frame.maxY - view.safeAreaInsets.top) + 20
+
+
+        let banner = UIView(frame: CGRect(x: bannerX, y: -bannerHeight - 20, // Start off-screen (top)
+                                         width: bannerWidth, height: bannerHeight))
+        banner.backgroundColor = UIColor.black.withAlphaComponent(0.75)
+        banner.layer.cornerRadius = 10
+        banner.clipsToBounds = true
+
+        let label = UILabel(frame: banner.bounds.insetBy(dx: 10, dy: 5))
+        label.text = "Undo used! (Once per game)"
+        label.textColor = .white
+        label.font = UIFont.systemFont(ofSize: 14, weight: .medium)
+        label.textAlignment = .center
+        label.numberOfLines = 0
+        banner.addSubview(label)
+
+        view.addSubview(banner)
+        self.infoBannerView = banner
+
+        // Animate in
+        UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5, options: .curveEaseOut, animations: {
+            banner.frame.origin.y = bannerY
+        }) { _ in
+            // Animate out after a delay
+            UIView.animate(withDuration: 0.4, delay: 2.0, options: .curveEaseIn, animations: {
+                banner.frame.origin.y = -bannerHeight - 20 // Animate off-screen (top)
+                banner.alpha = 0.0
+            }) { _ in
+                banner.removeFromSuperview()
+                if self.infoBannerView === banner { // Ensure it's the same banner
+                     self.infoBannerView = nil
+                }
+            }
+        }
+        UserDefaults.standard.set(true, forKey: undoRuleInfoShownKey)
+    }
     
+    @objc func undoButtonTapped(_ sender: UIButton) {
+        guard !gameOver, !undoActionUsedThisGame else {
+            // print("Undo: Cannot undo. Game over or undo already used this game.")
+            // If undoActionUsedThisGame is true, we might want to give a subtle feedback like a gentle shake
+            if undoActionUsedThisGame && !gameOver {
+                // Gentle shake for the undo button itself
+                let animation = CABasicAnimation(keyPath: "position.x")
+                animation.duration = 0.07
+                animation.repeatCount = 2 // Shorter shake
+                animation.autoreverses = true
+                animation.fromValue = NSNumber(value: sender.center.x - 4)
+                animation.toValue = NSNumber(value: sender.center.x + 4)
+                sender.layer.add(animation, forKey: "position.x.shakeUndo")
+                notificationFeedbackGenerator.notificationOccurred(.warning) // Haptic
+            }
+            return
+        }
+
+        // Show banner if it's the first time this session/ever
+        if !UserDefaults.standard.bool(forKey: undoRuleInfoShownKey) {
+            showUndoRuleInfoBanner()
+        }
+
+        // Proceed with AI cancellation or direct undo
+        let performUndoClosure = { [weak self] in
+            guard let self = self else { return }
+            guard !self.gameOver, !self.undoActionUsedThisGame else { return }
+            self.performOneShotUndo()
+        }
+
+        if self.currentGameMode == .humanVsAI && (self.aiThinkingIndicatorView?.isHidden == false) {
+            print("Undo: AI is thinking. Cancelling AI calculation for undo.")
+            self.aiShouldCancelMove = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { // Give AI a moment to acknowledge
+                performUndoClosure()
+            }
+        } else {
+            performUndoClosure()
+        }
+    }
+
+    private func performOneShotUndo() {
+        guard !gameOver, !undoActionUsedThisGame, !moveHistory.isEmpty else {
+            print("Undo: Conditions not met for one-shot undo (game over, undo used, or no moves).")
+            // If AI was cancelled, its thinking indicator should be hidden by its own cancellation logic.
+            // Re-enable user interaction if it was disabled for AI thinking and AI is now cancelled.
+            if currentGameMode == .humanVsAI && (aiThinkingIndicatorView?.isHidden ?? true) && !isAiTurn {
+                 view.isUserInteractionEnabled = true
+            }
+            updateUndoButtonState()
+            return
+        }
+
+        print("Undo: Performing one-shot undo.")
+        playSound(key: "invalid") // Or a dedicated "undo" sound
+        lightImpactFeedbackGenerator.impactOccurred()
+
+        // Determine whose turn it was before the last move(s)
+        // In HvH, undo one move. Player who made it gets the turn.
+        // In HvAI:
+        //   - If AI last moved, undo AI's move AND human's prior move. Turn goes to human.
+        //   - If Human last moved (AI hasn't responded yet), undo human's move. Turn goes to human.
+
+        let movesToPop: Int
+        var nextPlayerAfterUndo: Player
+
+        if currentGameMode == .humanVsHuman {
+            guard let lastMoveRecord = moveHistory.last else { return }
+            movesToPop = 1
+            nextPlayerAfterUndo = lastMoveRecord.player // Player who made the move gets to play again
+        } else { // Human vs AI
+            guard let lastMoveRecord = moveHistory.last else { return }
+            if lastMoveRecord.player == aiPlayer { // AI made the last move
+                // Ensure there's a human move before AI's to undo
+                guard moveHistory.count >= 2 else {
+                    print("Undo Error (HvAI): AI moved, but no preceding human move in history.")
+                    // This state should ideally not happen with a one-shot undo if AI always follows human.
+                    // If it does, just undo AI's move and let human play.
+                    movesToPop = 1
+                    nextPlayerAfterUndo = opponent(of: aiPlayer) // Human's turn
+                    return
+                }
+                movesToPop = 2 // Undo AI's move and human's prior move
+            } else { // Human made the last move (before AI could respond)
+                movesToPop = 1
+            }
+            nextPlayerAfterUndo = opponent(of: aiPlayer) // After undo in HvAI, it's always human's turn
+        }
+
+        guard moveHistory.count >= movesToPop else {
+            print("Undo: Not enough moves in history for the operation (\(movesToPop) needed, \(moveHistory.count) available).")
+            updateUndoButtonState()
+            return
+        }
+
+        for _ in 0..<movesToPop {
+            if let moveRecord = moveHistory.popLast() {
+                let pos = moveRecord.position
+                board[pos.row][pos.col] = .empty
+                pieceViews[pos.row][pos.col]?.removeFromSuperview()
+                pieceViews[pos.row][pos.col] = nil
+                moveCount -= 1
+            }
+        }
+        moveCountLabel.text = "Moves: \(moveCount)"
+
+        currentPlayer = nextPlayerAfterUndo
+        undoActionUsedThisGame = true // Mark undo as used for this game
+
+        // Update last move indicator
+        if let newLastMoveRecord = moveHistory.last {
+            self.lastMovePosition = newLastMoveRecord.position
+            showLastMoveIndicator(at: newLastMoveRecord.position)
+        } else {
+            self.lastMovePosition = nil
+            lastMoveIndicatorLayer?.removeFromSuperlayer()
+            lastMoveIndicatorLayer = nil
+            if moveHistory.isEmpty { currentPlayer = .black } // Reset to black if board is empty
+        }
+
+        statusLabel.text = "\(currentPlayer == .black ? "Black" : "White")'s Turn"
+        updateTurnIndicatorLine()
+        updateUndoButtonState() // This will now disable the button due to undoActionUsedThisGame = true
+
+        // Ensure UI is interactive if it's now human's turn
+        // (should generally be the case after undo, especially in HvAI)
+        view.isUserInteractionEnabled = true
+        hideAiThinkingIndicator() // Ensure it's hidden if AI was interrupted
+
+        print("Undo: One-shot undo completed. Current player: \(currentPlayer). Undo used: \(undoActionUsedThisGame)")
+    }
     func findWinningLine(playerState: CellState, lastRow: Int, lastCol: Int) -> [Position]? { /* ... */ guard playerState != .empty else { return nil }; let directions = [(0, 1), (1, 0), (1, 1), (1, -1)]; for (dr, dc) in directions { var linePositions: [Position] = [Position(row: lastRow, col: lastCol)]; var count = 1; for i in 1..<5 { let r = lastRow + dr * i; let c = lastCol + dc * i; if checkBounds(row: r, col: c) && board[r][c] == playerState { linePositions.append(Position(row: r, col: c)); count += 1 } else { break } }; for i in 1..<5 { let r = lastRow - dr * i; let c = lastCol - dc * i; if checkBounds(row: r, col: c) && board[r][c] == playerState { linePositions.append(Position(row: r, col: c)); count += 1 } else { break } }; if count >= 5 { linePositions.sort { ($0.row, $0.col) < ($1.row, $1.col) }; return Array(linePositions) } }; return nil }
     func switchPlayer() {
         guard !gameOver else { return }
         currentPlayer = (currentPlayer == .black) ? .white : .black
         statusLabel.text = "\(currentPlayer == .black ? "Black" : "White")'s Turn"
         updateTurnIndicatorLine()
+        updateUndoButtonState()
 
         if isAiTurn {
             view.isUserInteractionEnabled = false
@@ -1178,6 +1534,16 @@ class ViewController: UIViewController {
         rotationAnimation.repeatCount = .infinity // Repeat indefinitely
         rotationAnimation.timingFunction = CAMediaTimingFunction(name: .linear) // Constant speed
         indicator.layer.add(rotationAnimation, forKey: "rotationAnimation")
+         if selectedDifficulty == .hard && currentGameState == .playing { // Check game state too
+             let pulseAnimation = CABasicAnimation(keyPath: "transform.scale")
+             pulseAnimation.duration = 0.85
+             pulseAnimation.fromValue = 1.0
+             pulseAnimation.toValue = 1.25 // Slightly more noticeable pulse
+             pulseAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+             pulseAnimation.autoreverses = true
+             pulseAnimation.repeatCount = .infinity
+             indicator.layer.add(pulseAnimation, forKey: "pulseAnimation")
+         }
         print("AI thinking indicator shown and animating.")
     }
 
@@ -1188,6 +1554,8 @@ class ViewController: UIViewController {
         }) { _ in
             indicator.isHidden = true
             indicator.layer.removeAnimation(forKey: "rotationAnimation") // Stop animation
+             indicator.layer.removeAnimation(forKey: "pulseAnimation") // Remove specific animation
+             indicator.transform = .identity // Ensure scale is reset
             print("AI thinking indicator hidden and animation stopped.")
         }
     }
@@ -1487,7 +1855,23 @@ class ViewController: UIViewController {
     }
 
     // ... (Keep all existing AI logic from the previous step unchanged) ...
-    func performAiTurn() { guard !gameOver else { view.isUserInteractionEnabled = true; return }; aiShouldCancelMove = false; aiCalculationTurnID += 1; print("AI Turn (\(selectedDifficulty)): Performing move..."); let startTime = CFAbsoluteTimeGetCurrent(); switch selectedDifficulty { case .easy: performSimpleAiMove(); DispatchQueue.main.async { self.checkAndReenableInteraction() }; case .medium: performStandardAiMove(); DispatchQueue.main.async { self.checkAndReenableInteraction() }; case .hard: performHardAiMove() }; let timeElapsed = CFAbsoluteTimeGetCurrent() - startTime; print("AI (\(selectedDifficulty)) took \(String(format: "%.3f", timeElapsed)) seconds."); DispatchQueue.main.async { if !self.gameOver && !self.isAiTurn { self.view.isUserInteractionEnabled = true; self.statusLabel.text = "\(self.currentPlayer == .black ? "Black" : "White")'s Turn"; print("AI Turn (\(self.selectedDifficulty)): Completed. Re-enabled user interaction.") } else if self.gameOver { print("AI Turn (\(self.selectedDifficulty)): Game Over.") } else { print("AI Turn (\(self.selectedDifficulty)): Completed, still AI turn? (AI vs AI?)") } } }
+    func performAiTurn() {
+        if aiShouldCancelMove {
+            print("AI Turn (\(selectedDifficulty)): Cancelled before starting logic.")
+            DispatchQueue.main.async { // Ensure UI updates are on main thread
+                self.hideAiThinkingIndicator()
+                if !self.gameOver { // Only re-enable if game is not over
+                    // If it was AI's turn and it got cancelled, it should become human's turn
+                    // or the undo action will set the correct player.
+                    // For now, just ensure interaction is possible if game isn't over.
+                    self.view.isUserInteractionEnabled = true
+                }
+                self.updateUndoButtonState()
+                // Do NOT proceed with AI move placement
+            }
+            return // Important: exit the function
+        }
+        guard !gameOver else { view.isUserInteractionEnabled = true; return }; aiShouldCancelMove = false; aiCalculationTurnID += 1; print("AI Turn (\(selectedDifficulty)): Performing move..."); let startTime = CFAbsoluteTimeGetCurrent(); switch selectedDifficulty { case .easy: performSimpleAiMove(); DispatchQueue.main.async { self.checkAndReenableInteraction() }; case .medium: performStandardAiMove(); DispatchQueue.main.async { self.checkAndReenableInteraction() }; case .hard: performHardAiMove() }; let timeElapsed = CFAbsoluteTimeGetCurrent() - startTime; print("AI (\(selectedDifficulty)) took \(String(format: "%.3f", timeElapsed)) seconds."); DispatchQueue.main.async { if !self.gameOver && !self.isAiTurn { self.view.isUserInteractionEnabled = true; self.statusLabel.text = "\(self.currentPlayer == .black ? "Black" : "White")'s Turn"; print("AI Turn (\(self.selectedDifficulty)): Completed. Re-enabled user interaction.") } else if self.gameOver { print("AI Turn (\(self.selectedDifficulty)): Game Over.") } else { print("AI Turn (\(self.selectedDifficulty)): Completed, still AI turn? (AI vs AI?)") } } }
     // Helper called after Easy/Medium AI (which run synchronously)
     func checkAndReenableInteraction() {
          if !self.gameOver && !self.isAiTurn { // If it's now human's turn
@@ -2499,7 +2883,6 @@ class ViewController: UIViewController {
         }
         return nil
     }
-     struct Position: Hashable, Equatable { var row: Int; var col: Int }
      func isBoardFull() -> Bool { return findEmptyCells(on: self.board).isEmpty }
      func checkBounds(row: Int, col: Int) -> Bool { return row >= 0 && row < boardSize && col >= 0 && col < boardSize }
      func state(for player: Player) -> CellState { return player == .black ? .black : .white }
@@ -2565,14 +2948,22 @@ class ViewController: UIViewController {
                     // Pulse animation
                     UIView.animateKeyframes(withDuration: pulseDuration * Double(numberOfPulses), delay: 0, options: [.calculationModeLinear, .allowUserInteraction], animations: {
                         for i in 0..<numberOfPulses {
-                            UIView.addKeyframe(withRelativeStartTime: Double(i) / Double(numberOfPulses), relativeDuration: 0.5 / Double(numberOfPulses)) {
-                                pieceView.transform = CGAffineTransform(scaleX: 1.20, y: 1.20) // Slightly larger pulse
-                                pieceView.alpha = 0.65
-                            }
-                            UIView.addKeyframe(withRelativeStartTime: (Double(i) + 0.5) / Double(numberOfPulses), relativeDuration: 0.5 / Double(numberOfPulses)) {
-                                pieceView.transform = .identity
-                                pieceView.alpha = 1.0
-                            }
+                             UIView.addKeyframe(withRelativeStartTime: Double(i) / Double(numberOfPulses), relativeDuration: 0.5 / Double(numberOfPulses)) {
+                                 pieceView.transform = CGAffineTransform(scaleX: 1.25, y: 1.25) // Slightly larger pulse
+                                 pieceView.alpha = 0.60 // More noticeable alpha change
+                                 // Add a temporary "glow" effect using shadow
+                                 pieceView.layer.shadowColor = (self.board[position.row][position.col] == .black) ? UIColor.gray.cgColor : UIColor.white.cgColor
+                                 pieceView.layer.shadowRadius = 8
+                                 pieceView.layer.shadowOpacity = 0.85
+                             }
+                             UIView.addKeyframe(withRelativeStartTime: (Double(i) + 0.5) / Double(numberOfPulses), relativeDuration: 0.5 / Double(numberOfPulses)) {
+                                 pieceView.transform = .identity
+                                 pieceView.alpha = 1.0
+                                 // Reset shadow to original piece shadow
+                                 pieceView.layer.shadowColor = UIColor.black.cgColor
+                                 pieceView.layer.shadowOpacity = 0.30; // Original from drawPiece
+                                 pieceView.layer.shadowRadius = 2.5;   // Original from drawPiece
+                             }
                         }
                     }) { _ in
                         // Completion block ensures it returns to normal *after* the pulses
@@ -2580,10 +2971,11 @@ class ViewController: UIViewController {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                             // Check if view still exists and reset definitely
                              if self.pieceViews[position.row][position.col] === pieceView {
-                                pieceView.layer.removeAllAnimations() // Clean up just in case
-                                pieceView.transform = .identity
-                                pieceView.alpha = 1.0
-                                 pieceView.layer.zPosition = 0 // Reset zPosition
+                                  pieceView.layer.zPosition = 0
+                                  pieceView.layer.shadowColor = UIColor.black.cgColor
+                                  pieceView.layer.shadowOpacity = 0.30;
+                                  pieceView.layer.shadowOffset = CGSize(width: 0.75, height: 1.25);
+                                  pieceView.layer.shadowRadius = 2.5;
                              }
                         }
                     }
